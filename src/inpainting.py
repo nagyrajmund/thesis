@@ -1,25 +1,41 @@
+import sys
+
 import cv2
 import numpy as np
-
 import tensorflow as tf
 import neuralgym as ng
 
 from matplotlib import pyplot as plt
 from skimage.util import compare_images
-import sys
 
 from src.generative_inpainting.inpaint_model import InpaintCAModel
 from src.utils import create_log_manager
 
 class InpaintingModel:
-    def __init__(self, disable_prints: bool = True):
-        self.log_manager = create_log_manager(disable_prints)
+    """
+    A wrapper around the popular DeepFill-v2 generative inpainting model.
 
+    Args:
+        disable_tf_logs: if True, this class will not produce any tensorflow logs.
+    """
+    def __init__(self, disable_tf_logs: bool = True):
+        self.log_manager = create_log_manager(disable_tf_logs)
+        
         with self.log_manager:
             self.flags = ng.Config('generative_inpainting/inpaint.yml')
             self.model = InpaintCAModel()
 
-    def inpaint(self, image, mask):
+    def inpaint(self, image: np.ndarray, mask: np.ndarray) -> np.ndarray:
+        """
+        Inpaint a region of the image using the given mask.
+
+        Args:
+            image:      An OpenCV image of shape (H, W, C)
+            mask:       A binary OpenCV image of shape (H, W, C)
+
+        Returns:
+            The inpainted image.
+        """
         with self.log_manager:
             assert image.shape == mask.shape
 
@@ -54,7 +70,7 @@ class InpaintingModel:
                 print('Model loaded.')
                 result = sess.run(output)
                 
-                return result
+                return result[0]
 
 #TODO(RN) remove
 if __name__ == "__main__":
@@ -81,11 +97,11 @@ if __name__ == "__main__":
     plt.title("original image and mask")
 
     ax = plt.subplot(132)
-    ax.imshow(result[0])
+    ax.imshow(result)
     plt.title("inpainted image")
 
     ax = plt.subplot(133)
-    ax.imshow(compare_images(image[:,:,::-1], result[0], method='diff'))
+    ax.imshow(compare_images(image[:,:,::-1], result, method='diff'))
     plt.title("differences between original and inpainted image")
     
     plt.show()
