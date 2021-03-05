@@ -3,7 +3,7 @@ Ongoing thesis project on improving integrated gradients with latent interpolati
 
 
 # Installation notes
-- Install dependencies as described in [DEPENDENCIES.MD]
+- Install dependencies as described in [](DEPENDENCIES.MD)
 - Download pretrained inpainting models with gdown (`pip install gdown`):
   ```
   gdown https://drive.google.com/uc?id=1dyPD2hx0JTmMuHYa32j-pu--MXqgLgMy -O generative_inpainting/model_logs/
