@@ -20,7 +20,7 @@ class ImageGenerator:
     Based on the official DALL-E code: 
         https://github.com/openai/DALL-E
     """
-    def __init__(self, model_path: str, device: str = 'cpu'):
+    def __init__(self, model_path: str = "utils/dall_e_checkpoint", device: str = 'cpu'):
         self.device = torch.device(device)
         
         self.encoder = dall_e.load_model(join(model_path, "encoder.pkl"), self.device)
@@ -44,7 +44,6 @@ class ImageGenerator:
     def encode(self, image: PIL.Image, target_image_size: int) -> torch.tensor:
         """Return the latent code of the given image."""
         x = self.preprocess(image, target_image_size)
-        print(type(x))
         z_logits = self.encoder(x)
         z = torch.argmax(z_logits, axis=1)
         z = F.one_hot(z, num_classes=self.encoder.vocab_size).permute(0, 3, 1, 2).float()
@@ -64,11 +63,12 @@ class ImageGenerator:
         return self.decode(self.encode(image, target_image_size))
 
     def interpolate(self, 
-        image_a           : PIL.Image, 
-        image_b           : PIL.Image, 
+        image_a           : PIL.Image.Image, 
+        image_b           : PIL.Image.Image, 
         target_image_size : int = 256, 
-        n_steps           : int = 5
-    ) -> List[torch.tensor]:
+        n_steps           : int = 5,
+        add_endpoints     : bool = False
+    ) -> List[PIL.Image.Image]:
         """
         Return a latent linear interpolation between two images.
         """
@@ -79,6 +79,9 @@ class ImageGenerator:
         interpolation_path = torch.stack([(1-a)*z_a + a*z_b for a in alphas])
         
         interpolation = [self.decode(z) for z in interpolation_path]
+
+        if add_endpoints:
+            interpolation = [image_a] + interpolation + [image_b]
 
         return interpolation
 

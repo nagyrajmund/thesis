@@ -16,10 +16,10 @@ class InpaintingModel:
     A wrapper around the popular DeepFill-v2 generative inpainting model.
 
     Args:
-        disable_tf_logs: if True, this class will not produce any tensorflow logs.
+        disable_logs: if True, this class will not print anything in order to reduce noise.
     """
-    def __init__(self, disable_tf_logs: bool = True):
-        self.log_manager = create_log_manager(disable_tf_logs)
+    def __init__(self, disable_logs: bool = True):
+        self.log_manager = create_log_manager(disable_logs)
         
         with self.log_manager:
             self.flags = ng.Config('generative_inpainting/inpaint.yml')
