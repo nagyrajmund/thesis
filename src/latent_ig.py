@@ -27,22 +27,30 @@ class Latent_IG:
         self.segmentation_model = SegmentationModel()
         self.generative_model = ImageGenerator()
 
-    def plot_interpolation(self, image_path: str):
+    def plot_interpolation(self, image_path: str, n_steps: int = 7):
+        """
+        Plot the latent interpolation betweeen the original image and and its inpainted baseline.
+
+        Args:
+            image_path:  The path to the input image
+            n_steps:     The number of interpolation steps
+        """
         image = cv2.imread(image_path)
         masks = self.segmentation_model.extract_segmentation(image)
 
         # TODO(RN): merge masks or use multiple baselines
-        mask = masks[0]
+        mask = masks.max(axis = 0, keepdims = False)
         baseline = self.inpainting_model.inpaint(image, mask)
 
         # Convert OpenCV images to PIL images
         # TODO(RN): a bit quirky 
         image = opencv_to_pillow_image(image)
-        # The inpainting network returns the baseline as RGB openCV image
+        # The inpainting network returns the baseline as RGB openCV image,
+        # so this is enough to convert it to a PIL image
         baseline = PIL.Image.fromarray(baseline)
 
         interpolation = self.generative_model.interpolate(
-            image, baseline, n_steps = 7, add_endpoints = True)
+            image, baseline, n_steps = n_steps, add_endpoints = True)
         
         labels = {
             0: 'original input',
@@ -59,5 +67,5 @@ class Latent_IG:
 if __name__ == "__main__":
     latent_ig = Latent_IG()
 
-    latent_ig.plot_interpolation("../data/places_small/Places365_val_00000308.jpg")
+    latent_ig.plot_interpolation("../data/places_small/Places365_val_00000247.jpg")
     plt.show()

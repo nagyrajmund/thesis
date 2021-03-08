@@ -1,4 +1,5 @@
 **/__pycache/*
 *.egg-info/*
 *.pyc
-src/utils/deepfill_checkpoint
+utils/deepfill_checkpoint
+utils/dall_e_checkpoint
