@@ -49,7 +49,7 @@ class ImageGenerator:
 
     def encode(self, image: PIL.Image) -> torch.tensor:
         """Return the latent code of the given image."""
-        x = self.preprocess(image, self.target_image_size)
+        x = self.preprocess(image)
         z_logits = self.encoder(x)
         z = torch.argmax(z_logits, axis=1)
         z = F.one_hot(z, num_classes=self.encoder.vocab_size).permute(0, 3, 1, 2).float()
@@ -66,7 +66,7 @@ class ImageGenerator:
 
     def reconstruct(self, image: PIL.Image):
         """Return the reconstruction of the given image."""
-        return self.decode(self.encode(image, self.target_image_size))
+        return self.decode(self.encode(image))
 
     def interpolate(self, 
         image_a           : PIL.Image.Image, 
@@ -77,8 +77,8 @@ class ImageGenerator:
         """
         Return a latent linear interpolation between the two images as a list of PIL images.
         """
-        z_a = self.encode(image_a, self.target_image_size)
-        z_b = self.encode(image_b, self.target_image_size)
+        z_a = self.encode(image_a)
+        z_b = self.encode(image_b)
 
         alphas = np.linspace(0, 1, n_steps)
         interpolation_path = torch.stack([(1-a)*z_a + a*z_b for a in alphas])

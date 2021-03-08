@@ -55,6 +55,15 @@ def plot_image_grid(images: np.ndarray, labels: Dict[int, str] = {}):
         labels: a dictionary of image indices and the corresponding labels
     """
     n = len(images)
+    
+    # if there's only one image then we can't use plt.subplots() -> just plot it normally
+    if n == 1:
+        plt.imshow(images[0])
+        
+        if 0 in labels:
+            plt.title(labels[0])
+        
+        return
 
     _, axes = plt.subplots(1, n, gridspec_kw = {'wspace': 0, 'hspace': 0})
 
