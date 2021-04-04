@@ -1,15 +1,9 @@
-import sys
-
-import cv2
 import numpy as np
 import tensorflow as tf
 import neuralgym as ng
 
-from matplotlib import pyplot as plt
-from skimage.util import compare_images
-
-from src.generative_inpainting.inpaint_model import InpaintCAModel
-from src.utils import create_log_manager
+from models.backend.deepfill.inpaint_model import InpaintCAModel
+from scripts.utils import create_log_manager
 
 class InpaintingModel:
     """
@@ -22,7 +16,7 @@ class InpaintingModel:
         self.log_manager = create_log_manager(disable_logs)
         
         with self.log_manager:
-            self.flags = ng.Config('generative_inpainting/inpaint.yml')
+            self.flags = ng.Config('../models/backend/deepfill/inpaint.yml')
             self.model = InpaintCAModel()
 
     def inpaint(self, image: np.ndarray, mask: np.ndarray) -> np.ndarray:
@@ -64,7 +58,7 @@ class InpaintingModel:
                 for var in vars_list:
                     vname = var.name
                     from_name = vname
-                    var_value = tf.contrib.framework.load_variable("../utils/deepfill_checkpoint/", from_name)
+                    var_value = tf.contrib.framework.load_variable("../../utils/deepfill_checkpoint/", from_name)
                     assign_ops.append(tf.assign(var, var_value))
                 sess.run(assign_ops)
                 print('Model loaded.')
@@ -72,36 +66,3 @@ class InpaintingModel:
                 
                 return result[0]
 
-#TODO(RN) remove
-if __name__ == "__main__":
-    if len(sys.argv) >= 2:
-        image_path = sys.argv[1]
-    else:
-        image_path = "../data/places_small/Places365_val_00000178.jpg"
-
-    if len(sys.argv) >= 3:
-        mask_path = sys.argv[2]
-    else:
-        mask_path = "../../_thesis_old/u2-net-segmentation/test_data/u2netp_results/res_0177.png"
-
-    image = cv2.imread(image_path)
-    mask = cv2.imread(mask_path)
-
-    model = InpaintingModel()
-
-    result = model.inpaint(image, mask)
-
-    ax = plt.subplot(131)
-    ax.imshow(image[:,:,::-1])
-    ax.imshow(mask, alpha = 0.3)
-    plt.title("original image and mask")
-
-    ax = plt.subplot(132)
-    ax.imshow(result)
-    plt.title("inpainted image")
-
-    ax = plt.subplot(133)
-    ax.imshow(compare_images(image[:,:,::-1], result, method='diff'))
-    plt.title("differences between original and inpainted image")
-    
-    plt.show()

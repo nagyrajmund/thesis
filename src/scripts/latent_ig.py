@@ -1,3 +1,5 @@
+import os
+from os.path import join
 from typing import List
 from PIL.Image import blend
 import numpy as np
@@ -6,10 +8,10 @@ import cv2
 import PIL
 from matplotlib import pyplot as plt
 
-from src.inpainting import InpaintingModel
-from src.segmentation import SegmentationModel
-from src.interpolation import ImageGenerator
-from src.utils import plot_image_grid, opencv_to_pillow_image
+from methods.inpainting import InpaintingModel
+from methods.segmentation import SegmentationModel
+from methods.interpolation import ImageGenerator
+from methods.utils import plot_image_grid, opencv_to_pillow_image
 
 class Latent_IG:
     """
@@ -118,5 +120,7 @@ class Latent_IG:
 if __name__ == "__main__":
     latent_ig = Latent_IG()
 
-    latent_ig.plot_interpolation("../data/places_small/Places365_val_00000199.jpg")
-    plt.show()
+    for file in os.listdir("../data/places_small/"):
+        file = join("../data/places_small/", file)
+        latent_ig.plot_interpolation(file)
+        plt.show()

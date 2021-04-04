@@ -1,14 +1,17 @@
 from os.path import join
+from typing import List
+
+import PIL
 import numpy as np
 import torch
-import dall_e
 import torchvision.transforms as T
 import torchvision.transforms.functional as TF
 import torch.nn.functional as F
-import PIL
-from matplotlib import pyplot as plt
-from typing import List
-from torchvision.transforms.functional import InterpolationMode
+
+import dall_e
+
+
+
 class ImageGenerator:
     """
     A pretrained discrete VAE from OpenAI's DALL-E.
@@ -22,7 +25,7 @@ class ImageGenerator:
         https://github.com/openai/DALL-E
     """
     def __init__(self, 
-        model_path: str = "../utils/dall_e_checkpoint", 
+        model_path: str = "../../utils/dall_e_checkpoint", 
         device: str = 'cpu', 
         target_image_size: int = 256
     ):
@@ -41,7 +44,7 @@ class ImageGenerator:
             
         r = self.target_image_size / s
         s = (round(r * image.size[1]), round(r * image.size[0]))
-        image = TF.resize(image, s, interpolation=InterpolationMode.LANCZOS)
+        image = TF.resize(image, s, interpolation=TF.InterpolationMode.LANCZOS)
         image = TF.center_crop(image, output_size=2 * [self.target_image_size])
         image = torch.unsqueeze(T.ToTensor()(image), 0)
         
@@ -90,22 +93,3 @@ class ImageGenerator:
             interpolation = [image_a] + interpolation + [image_b]
 
         return interpolation
-
-if __name__ == "__main__":
-    target_image_size = 256
-    n_interpolation_steps = 10
-
-    model = ImageGenerator(model_path = "../utils/dall_e_checkpoint")
-    image_a = PIL.Image.open("../data/places_small/Places365_val_00000173.jpg")
-    image_b = PIL.Image.open("../data/places_small/Places365_val_00000199.jpg")
-
-    interpolation = model.interpolate(
-        image_a, image_b, target_image_size, n_interpolation_steps)
-
-    _, axes = plt.subplots(1, n_interpolation_steps, gridspec_kw = {'wspace': 0, 'hspace': 0})
-
-    for image, axis in zip(interpolation, axes):
-        axis.imshow(image)
-        axis.axis('off')
-
-    plt.show()

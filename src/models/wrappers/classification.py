@@ -1,18 +1,11 @@
-import os
-from os.path import join
+
 import PIL
-import random
-import torchvision.transforms.functional as TF
 import numpy as np
 import torch
 from torchvision import transforms
-from torchvision.transforms import functional as F
-from imgaug import augmenters as iaa
-from matplotlib import pyplot as plt
-from src.scene_recognition import utils
-from src.scene_recognition.SASceneNet import SASceneNet
-from torch.nn.functional import softmax
-# TODO(RN): review these classes and add support for ten_crops = False
+
+from models.backend.SASceneNet import utils
+from models.backend.SASceneNet.SASceneNet import SASceneNet
 
 
 class PlacesDatasetMetadata:
@@ -80,7 +73,7 @@ class PlacesDatasetMetadata:
         
     def load_class_names(self):
         classes = list()
-        class_file_name = "scene_recognition/categories_places365.txt"
+        class_file_name = "../models/backend/SASceneNet/categories_places365.txt"
 
         with open(class_file_name) as class_file:
             for line in class_file:
@@ -96,7 +89,7 @@ class PlacesDatasetMetadata:
 
 class SceneRecognitionModel:
     def __init__(self, 
-        model_path   : str = "../utils/SAScene_checkpoint/SAScene_ResNet18_Places.pth.tar",
+        model_path   : str = "../../utils/SAScene_checkpoint/SAScene_ResNet18_Places.pth.tar",
         device       : str = "cpu",
         do_ten_crops : bool = False
     ):
@@ -177,25 +170,3 @@ class SceneRecognitionModel:
         
         # Compute class accuracy
         return outputSceneLabels
-
-if __name__ == "__main__":
-    model = SceneRecognitionModel()
-
-    for file in os.listdir("../data/places_small/"):
-        file = join("../data/places_small/", file)
-
-        image = PIL.Image.open(file)
-        C = model.dataset.n_semantic_classes
-        semantic_scores = F.to_pil_image(torch.rand((3, 224, 224)))
-        semantic_mask = F.to_pil_image(torch.randint(0, 1, (3, 224, 224)).float())
-        plt.imshow(image)
-        pred = model.predict(image, semantic_mask, semantic_scores)
-        pred = softmax(pred.squeeze(), dim=0)
-        class_probs, class_idxs = torch.topk(pred, k=5)
-        plt.title(
-            "\n".join(
-                model.dataset.classes[class_idxs[i]] + f" ({100 * class_probs[i]:.2f}%)"
-                for i in range(len(class_probs))))
-        plt.show()
-
-    
