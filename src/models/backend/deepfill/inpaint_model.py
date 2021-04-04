@@ -1,8 +1,6 @@
 """ common model for DCGAN """
 import logging
 
-import cv2
-import neuralgym as ng
 import tensorflow as tf
 from tensorflow.contrib.framework.python.ops import arg_scope
 
@@ -11,11 +9,10 @@ from neuralgym.ops.summary_ops import scalar_summary, images_summary
 from neuralgym.ops.summary_ops import gradients_summary
 from neuralgym.ops.layers import flatten, resize
 from neuralgym.ops.gan_ops import gan_hinge_loss
-from neuralgym.ops.gan_ops import random_interpolates
 
-from src.generative_inpainting.inpaint_ops import gen_conv, gen_deconv, dis_conv
-from src.generative_inpainting.inpaint_ops import random_bbox, bbox2mask, local_patch, brush_stroke_mask
-from src.generative_inpainting.inpaint_ops import resize_mask_like, contextual_attention
+from models.backend.deepfill.inpaint_ops import gen_conv, gen_deconv, dis_conv
+from models.backend.deepfill.inpaint_ops import random_bbox, bbox2mask, brush_stroke_mask
+from models.backend.deepfill.inpaint_ops import resize_mask_like, contextual_attention
 
 
 logger = logging.getLogger()
