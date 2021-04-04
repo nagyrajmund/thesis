@@ -8,7 +8,7 @@ import torch.nn.functional as F
 import PIL
 from matplotlib import pyplot as plt
 from typing import List
-
+from torchvision.transforms.functional import InterpolationMode
 class ImageGenerator:
     """
     A pretrained discrete VAE from OpenAI's DALL-E.
@@ -41,7 +41,7 @@ class ImageGenerator:
             
         r = self.target_image_size / s
         s = (round(r * image.size[1]), round(r * image.size[0]))
-        image = TF.resize(image, s, interpolation=PIL.Image.LANCZOS)
+        image = TF.resize(image, s, interpolation=InterpolationMode.LANCZOS)
         image = TF.center_crop(image, output_size=2 * [self.target_image_size])
         image = torch.unsqueeze(T.ToTensor()(image), 0)
         
@@ -69,13 +69,14 @@ class ImageGenerator:
         return self.decode(self.encode(image))
 
     def interpolate(self, 
-        image_a           : PIL.Image.Image, 
-        image_b           : PIL.Image.Image, 
-        n_steps           : int = 5,
-        add_endpoints     : bool = False
+        image_a             : PIL.Image.Image, 
+        image_b             : PIL.Image.Image, 
+        n_steps             : int = 5,
+        add_original_images : bool = False
     ) -> List[PIL.Image.Image]:
         """
-        Return a latent linear interpolation between the two images as a list of PIL images.
+        Return a latent linear interpolation between DALL-E's reconstruction of
+        the two images as a list of PIL images. 
         """
         z_a = self.encode(image_a)
         z_b = self.encode(image_b)
@@ -85,7 +86,7 @@ class ImageGenerator:
         
         interpolation = [self.decode(z) for z in interpolation_path]
 
-        if add_endpoints:
+        if add_original_images:
             interpolation = [image_a] + interpolation + [image_b]
 
         return interpolation

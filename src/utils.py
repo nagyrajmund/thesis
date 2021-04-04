@@ -74,6 +74,34 @@ def plot_image_grid(images: np.ndarray, labels: Dict[int, str] = {}):
         if i in labels:
             ax.set_title(labels[i])
 
+def plot_image_grid(images: np.ndarray, labels: Dict[int, str] = {}):
+    """
+    Plot a 1D grid of images and use the 'labels' as their titles (when given).
+
+    Args:
+        images: an array of multiple RGB images with shape (N, H, W, C)
+        labels: a dictionary of image indices and the corresponding labels
+    """
+    n = len(images)
+    
+    # if there's only one image then we can't use plt.subplots() -> just plot it normally
+    if n == 1:
+        plt.imshow(images[0])
+        
+        if 0 in labels:
+            plt.title(labels[0])
+        
+        return
+
+    _, axes = plt.subplots(1, n, gridspec_kw = {'wspace': 0, 'hspace': 0})
+
+    for i, ax in enumerate(axes):
+        ax.imshow(images[i])
+        ax.axis('off')
+        
+        if i in labels:
+            ax.set_title(labels[i])
+
 def opencv_to_pillow_image(opencv_image: np.ndarray) -> PIL.Image.Image:
     opencv_image = cv2.cvtColor(opencv_image, cv2.COLOR_BGR2RGB)
     pillow_image = PIL.Image.fromarray(opencv_image)

@@ -1,3 +1,5 @@
+from typing import List
+from PIL.Image import blend
 import numpy as np
 import cv2
 
@@ -27,7 +29,12 @@ class Latent_IG:
         self.segmentation_model = SegmentationModel()
         self.generative_model = ImageGenerator()
 
-    def plot_interpolation(self, image_path: str, n_steps: int = 7):
+    def plot_interpolation(self, 
+        image_path: str, 
+        n_steps: int = 7,
+        plot_original_imgs: bool = True,
+        plot_mask_overlay: bool = True
+    ):
         """
         Plot the latent interpolation betweeen the original image and and its inpainted baseline.
 
@@ -48,24 +55,68 @@ class Latent_IG:
         # The inpainting network returns the baseline as RGB openCV image,
         # so this is enough to convert it to a PIL image
         baseline = PIL.Image.fromarray(baseline)
-
+        print("----------- interpolating -------------")
         interpolation = self.generative_model.interpolate(
-            image, baseline, n_steps = n_steps, add_endpoints = True)
+            image, baseline, n_steps, plot_original_imgs)
+        print("-----------      DONE     -------------")
         
+        if plot_mask_overlay:
+            self._plot_interpolation_array(interpolation, mask)
+        else:
+            self._plot_interpolation_array(interpolation)
+
+    def _plot_interpolation_array(self,
+        img_list: List[PIL.Image.Image], 
+        mask: np.ndarray = None
+    ):
+        """
+        Plot the latent interpolation found in img_list. Additionally, if 'mask'
+        is given, its overlay on the original image and the baseline will be shown.
+        """
+        n_images = len(img_list)
+
         labels = {
             0: 'original input',
             1: 'reconstruction',
-            len(interpolation) - 2: 'reconstruction',
-            len(interpolation) - 1: 'inpainted baseline'
+            n_images - 2: 'reconstruction',
+            n_images - 1: 'inpainted baseline',
         }
 
-        # Add mask
-        interpolation[-1] = PIL.Image.blend(interpolation[-1], opencv_to_pillow_image(mask), 0.3)
+        # If no mask is given, the images will be plotted in one row
+        if mask is None:
+            return plot_image_grid(img_list, labels)
+
+        # Otherwise, create a two row plot
+        _, axes = plt.subplots(2, len(img_list), gridspec_kw = {'wspace': 0, 'hspace': 0}, sharex='row')
+        top_row = axes[0]
+        bottom_row = axes[1]
+
+        for _, axis in np.ndenumerate(axes):
+            axis.axis('off')
+        # Helper function
+        def plot_image(axis, image, label):
+            axis.imshow(image)
+
+            if label is not None:
+                axis.set_title(label)
+
+        # First we plot the images in img_list - this will be the upper row
+        for i, (axis, image) in enumerate(zip(axes[0], img_list)):
+            label = labels[i] if i in labels else None
+            plot_image(axis, image, label)       
+
+        # Then, we plot the overlays for the original and the baseline image in the lower row
+        overlay = lambda img, mask : blend(img, opencv_to_pillow_image(mask), 0.3)
         
-        plot_image_grid(interpolation, labels)
+        original_with_mask = overlay(img_list[0],  mask)
+        baseline_with_mask = overlay(img_list[-1], mask)
+        
+        plot_image(axes[1,0], original_with_mask, "original with mask")
+        plot_image(axes[1,-1], baseline_with_mask, "baseline with mask")
+        plt.tight_layout()
 
 if __name__ == "__main__":
     latent_ig = Latent_IG()
 
-    latent_ig.plot_interpolation("../data/places_small/Places365_val_00000247.jpg")
+    latent_ig.plot_interpolation("../data/places_small/Places365_val_00000199.jpg")
     plt.show()
