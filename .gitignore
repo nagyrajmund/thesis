@@ -1,5 +1,6 @@
 **/__pycache/*
 *.egg-info/*
 *.pyc
+**/.vscode/*
 utils/deepfill_checkpoint
 utils/dall_e_checkpoint

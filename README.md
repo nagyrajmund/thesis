@@ -1,6 +1,18 @@
 # thesis
 Ongoing thesis project on improving integrated gradients with latent interpolation
 
+***
+# TODO
+- Implement IG for the places classifier
+- Measure the difference between the explanations for the original image and the baseline
+- Implement the insertion/deletion metric + visualizaiton
+- Implement the latent version of IG
+- Compare latent IG with original IG on the full dataset using the previous metrics
+  - Check the numerical stability of the integral approximation
+  - Random segmentations as baseline
+  - Great circle interpolation
+
+
 
 # Installation notes
 - Install dependencies as described in [](DEPENDENCIES.MD)
@@ -16,3 +28,4 @@ Ongoing thesis project on improving integrated gradients with latent interpolati
   wget https://cdn.openai.com/dall-e/encoder.pkl -P utils/dall_e_checkpoint/
   wget https://cdn.openai.com/dall-e/decoder.pkl -P utils/dall_e_checkpoint/
   ```
+

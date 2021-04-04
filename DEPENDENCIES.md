@@ -15,6 +15,8 @@ pip install git+https://github.com/JiahuiYu/neuralgym
 # generative model 
 pip install dall-e
 
+# scene recognition model
+pip install imgaug
 
 pip install -e .
 ```
