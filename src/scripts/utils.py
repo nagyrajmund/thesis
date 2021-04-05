@@ -14,9 +14,12 @@ import PIL
 from typing import Tuple
 from pprint import pprint
     
-def create_default_argparser() -> ArgumentParser:
+def create_default_argparser(**override_defaults_kwargs) -> ArgumentParser:
     """
     Return an ArgumentParser with common arguments such as the input/output folders.
+
+    If 'override_defaults_kwargs' is provided, it will be used to change the
+    default values of the arguments.
     """
     parser = ArgumentParser(add_help=True)
     
@@ -29,6 +32,8 @@ def create_default_argparser() -> ArgumentParser:
     parser.add_argument("--show_plot", action="store_true",
                         help="If set,the script's results are shown on the screen in addition to saving them to 'output_dir'")
 
+    parser.set_defaults(**override_defaults_kwargs)
+
     return parser
 
 def save_args_to_output_dir(args: Namespace, print_args: bool = True):
@@ -40,7 +45,6 @@ def save_args_to_output_dir(args: Namespace, print_args: bool = True):
 
     with open(join(args.output_dir, "cmd_args.json"), "w") as file:
         json.dump(args.__dict__, file, indent=2)
-
 
 def create_output_dir(args: Namespace):
     """
