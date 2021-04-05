@@ -1,7 +1,8 @@
+from argparse import ArgumentParser
 import os, sys
 from contextlib import nullcontext
 from typing import List, Dict
-
+import shutil
 import numpy as np
 import detectron2
 import tensorflow as tf
@@ -9,6 +10,28 @@ import cv2
 
 from matplotlib import pyplot as plt
 import PIL
+
+
+def create_default_argparser():
+    parser = ArgumentParser()
+    
+    parser.add_argument("--output_dir", type=str, default="output/inpainting")
+    parser.add_argument("--data_dir", type=str, default="../../data/places_small")
+    parser.add_argument("--show_plot", action="store_true")
+
+    return parser
+
+def create_output_dir(output_dir):
+    if os.path.exists(output_dir):
+        cmd = input("-" * 16 + \
+                    f"\nWARNING: output dir '{output_dir}' already exists.\n" + \
+                     "\nType 'ok' to delete it and anything else to quit: ")
+        if cmd != 'ok':
+            exit()
+        else:
+            shutil.rmtree(output_dir)
+    
+    os.makedirs(output_dir)
 
 def infer_detectron2_class_names(config_file: str) -> List[str]:
     """Return a list of all known class names for the model of the given config file."""
