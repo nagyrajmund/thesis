@@ -6,16 +6,20 @@ import numpy as np
 import cv2
 
 import PIL
+from matplotlib.axes import Axes
 from matplotlib import pyplot as plt
 
 from models.wrappers.inpainting import InpaintingModel
 from models.wrappers.segmentation import SegmentationModel
 from models.wrappers.generation import ImageGenerator
 from scripts import utils
+from tqdm import tqdm
 
 def parse_args():
     parser = utils.create_default_argparser(output_dir="outputs/latent_interpolation")
 
+    parser.add_argument("--show_classifier_outputs", action="store_true",
+                        help="If set, an additional row will be shown with the classifier's outputs")
     parser.add_argument("--n_steps", type=int, default=7,
                         help="The number of interpolation steps")
     parser.add_argument("--dilation", type=int, default=7,
@@ -29,31 +33,63 @@ def main():
     This script plots a linear interpolation between original images and inpainted baselines,
     performed in the latent space of the generative model from DALL-E.
     """
-    for file in os.listdir(args.data_dir):
-        print(file)
-        plot_interpolation(image_path = join(args.data_dir, file))
+    progress_bar = tqdm(os.listdir(args.data_dir))
+    for file in progress_bar:
+        progress_bar.set_description(file)
+
+        image_file = join(args.data_dir, file)
+
+        input_space_axes, latent_space_axes, classifier_axes = create_plot()
+
+        plot_interpolation(
+            image_file, 
+            interpolation_axes=latent_space_axes,
+            original_img_axes=input_space_axes,
+            model_output_axes=classifier_axes
+        )
         
         if args.show_plot:
             plt.subplots_adjust(left=0, right=1, top=1, bottom=0)
-            plt.show()
+            plt.show(block=False)
         else:
             plt.savefig(join(args.output_dir, file), bbox_inches='tight')
 
+def create_plot():
+    # There can be three rows: 1) input space 2) latent space 3) model outputs
+    n_rows = 3 if args.show_classifier_outputs else 2
+    n_cols = args.n_steps
+
+    _, axes = plt.subplots(
+        n_rows, n_cols, 
+        gridspec_kw = {'wspace': 0.025, 'hspace': 0.1}, 
+        figsize=utils.get_figsize(n_rows, n_cols)
+    )
+    
+    input_space_axes = axes[0]
+    latent_space_axes = axes[1]
+    classifier_axes = axes[2] if n_rows == 3 else None
+
+    # Turn off all axis ticks
+    for _, axis in np.ndenumerate(axes):
+        axis.axis('off')
+    
+    return input_space_axes, latent_space_axes, classifier_axes
+
 def plot_interpolation(
-    image_path: str, 
-    n_steps: int = 7,
-    plot_original_imgs: bool = True,
-    plot_mask_overlay: bool = True
+    image_file: str,
+    interpolation_axes: Axes,
+    original_img_axes: Axes,
+    model_output_axes: Axes
 ):
     """
     Plot the latent interpolation betweeen the original image and and its inpainted baseline.
 
     Args:
-        image_path:  The path to the input image
+        image_file:  The path to the input image
         n_steps:     The number of interpolation steps
     """
-    image = cv2.imread(image_path)
-    masks = segmentation_model.extract_segmentation(image)
+    original = cv2.imread(image_file)
+    masks = segmentation_model.extract_segmentation(original)
 
     # TODO(RN): merge masks or use multiple baselines
     mask = masks.max(axis = 0, keepdims = False)
@@ -61,75 +97,60 @@ def plot_interpolation(
     if args.dilation > 0:
         mask = utils.dilate_mask(mask, n_iters=args.dilation)
         
-    baseline = inpainting_model.inpaint(image, mask)
+    baseline = inpainting_model.inpaint(original, mask)
 
     # Convert OpenCV images to PIL images
     # TODO(RN): a bit quirky 
-    image = utils.opencv_to_pillow_image(image)
+    original_image = utils.opencv_to_pillow_image(original)
     # The inpainting network returns the baseline as RGB openCV image,
     # so this is enough to convert it to a PIL image
-    baseline = PIL.Image.fromarray(baseline)
+    baseline_image = PIL.Image.fromarray(baseline)
 
-    interpolation = generative_model.interpolate(
-        image, baseline, n_steps, plot_original_imgs)
-    
-    if plot_mask_overlay:
-        _plot_interpolation_array(interpolation, mask)
-    else:
-        _plot_interpolation_array(interpolation)
+    interpolation_imgs = generative_model.interpolate(
+        original_image, baseline_image, args.n_steps, add_original_images=False)
+ 
+    _plot_interpolation_array(
+        original_image, baseline_image, mask, interpolation_imgs,
+        interpolation_axes,
+        original_img_axes,
+        model_output_axes
+    )
+
 
 def _plot_interpolation_array(
-    img_list: List[PIL.Image.Image], 
-    mask: np.ndarray = None
+    original_img: PIL.Image.Image,
+    baseline_img: PIL.Image.Image,
+    mask: np.ndarray,
+    interpolation_imgs: List[PIL.Image.Image],
+    interpolation_axes: Axes,
+    original_img_axes: Axes,
+    model_output_axes: Axes
 ):
     """
     Plot the latent interpolation found in img_list. Additionally, if 'mask'
     is given, its overlay on the original image and the baseline will be shown.
     """
-    n_images = len(img_list)
-
-    labels = {
-        0: 'original input',
-        1: 'reconstruction',
-        n_images - 2: 'reconstruction',
-        n_images - 1: 'inpainted baseline',
-    }
-
-    # If no mask is given, the images will be plotted in one row
-    if mask is None:
-        return utils.plot_image_grid(img_list, labels)
-
-    # Otherwise, create a two row plot
-    n_rows = 2
-    n_cols = len(img_list)
-    
-    _, axes = plt.subplots(n_rows, n_cols, gridspec_kw = {'wspace': 0, 'hspace': 0.1}, figsize=utils.get_figsize(n_rows, n_cols))
-    top_axis_row = axes[0]
-    bottom_axis_row = axes[1]
-
-    # Turn off all axis ticks
-    for _, axis in np.ndenumerate(axes):
-        axis.axis('off')
-
-    # Helper function
-    def plot_image(axis, image, label):
+    def plot_image(axis, image, label=None):
         axis.imshow(image)
         if label is not None:
             axis.set_title(label)
 
-    # First we plot the images in img_list on the bottom axes
-    for i, (axis, image) in enumerate(zip(bottom_axis_row, img_list)):
-        label = labels[i] if i in labels else None
-        plot_image(axis, image, label)       
+    # Plot the latent interpolation between the reconstructions of the 
+    # input and the baseline images
+    for i, (axis, image) in enumerate(zip(interpolation_axes, interpolation_imgs)):
+        label = "reconstruction" if i == 0 or i == args.n_steps - 1 else None
+        plot_image(axis, image, label)
 
     # Then, we plot the overlays for the original and the baseline image on the upper row
     overlay = lambda img, mask : blend(img, utils.opencv_to_pillow_image(mask), alpha = 0.3)
     
-    original_with_mask = overlay(img_list[0],  mask)
-    baseline_with_mask = overlay(img_list[-1], mask)
+    original_with_mask = overlay(original_img,  mask)
+    baseline_with_mask = overlay(baseline_img, mask)
     
-    plot_image(top_axis_row[0], original_with_mask, "original with mask")
-    plot_image(top_axis_row[-1], baseline_with_mask, "baseline with mask")
+    plot_image(original_img_axes[0], original_img, "original image")
+    plot_image(original_img_axes[1], original_with_mask, "original image with mask")
+    plot_image(original_img_axes[-2], baseline_with_mask, "baseline image with mask")
+    plot_image(original_img_axes[-1], baseline_img, "baseline image")
 
 
 if __name__ == "__main__":

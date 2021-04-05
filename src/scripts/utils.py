@@ -50,12 +50,12 @@ def create_output_dir(args: Namespace):
     """
     Create the 'output_dir' folder. If it already exists, it is emptied upon the user's approval.
     """
+    # If show_plot is True, no results will be saved
+    if args.show_plot:
+        return
+    
     if args.output_dir is None:
-        # If show_plot is True, no results will be saved and output_dir can be None
-        if args.show_plot:
-            return
-        else:
-            raise ArgumentError(args.output_dir, "Please set the result folder with the --output_dir option!")
+        raise ArgumentError(args.output_dir, "Please set the result folder with the --output_dir option!")
 
     if os.path.exists(args.output_dir):
         cmd = input(f"\nWARNING: output dir '{args.output_dir}' already exists!" + \
