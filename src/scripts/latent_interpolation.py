@@ -14,11 +14,11 @@ from models.wrappers.generation import ImageGenerator
 from scripts import utils
 
 def parse_args():
-    parser = utils.create_default_argparser()
+    parser = utils.create_default_argparser(output_dir="outputs/latent_interpolation")
 
     parser.add_argument("--n_steps", type=int, default=7,
                         help="The number of interpolation steps")
-    parser.add_argument("--dilation", type=int, default=7,
+    parser.add_argument("--dilation", type=int, default=10,
                         help="The number of mask dilation iterations")
     args = parser.parse_args()
         
@@ -102,29 +102,34 @@ def _plot_interpolation_array(
     # Otherwise, create a two row plot
     n_rows = 2
     n_cols = len(img_list)
+    
     _, axes = plt.subplots(n_rows, n_cols, gridspec_kw = {'wspace': 0, 'hspace': 0.1}, figsize=utils.get_figsize(n_rows, n_cols))
+    top_axis_row = axes[0]
+    bottom_axis_row = axes[1]
 
+    # Turn off all axis ticks
     for _, axis in np.ndenumerate(axes):
         axis.axis('off')
+
     # Helper function
     def plot_image(axis, image, label):
         axis.imshow(image)
         if label is not None:
             axis.set_title(label)
 
-    # First we plot the images in img_list - this will be the upper row
-    for i, (axis, image) in enumerate(zip(axes[0], img_list)):
+    # First we plot the images in img_list on the bottom axes
+    for i, (axis, image) in enumerate(zip(bottom_axis_row, img_list)):
         label = labels[i] if i in labels else None
         plot_image(axis, image, label)       
 
-    # Then, we plot the overlays for the original and the baseline image in the lower row
-    overlay = lambda img, mask : blend(img, utils.opencv_to_pillow_image(mask), 0.3)
+    # Then, we plot the overlays for the original and the baseline image on the upper row
+    overlay = lambda img, mask : blend(img, utils.opencv_to_pillow_image(mask), alpha = 0.3)
     
     original_with_mask = overlay(img_list[0],  mask)
     baseline_with_mask = overlay(img_list[-1], mask)
     
-    plot_image(axes[1, 0], original_with_mask, "original with mask")
-    plot_image(axes[1,-1], baseline_with_mask, "baseline with mask")
+    plot_image(top_axis_row[0], original_with_mask, "original with mask")
+    plot_image(top_axis_row[-1], baseline_with_mask, "baseline with mask")
 
 
 if __name__ == "__main__":

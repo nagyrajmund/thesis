@@ -11,7 +11,8 @@ from scripts import utils
 
 
 def parse_args():
-    parser = utils.create_default_argparser()
+    parser = utils.create_default_argparser(output_dir = "outputs/mask_dilation")
+
     parser.add_argument("--threshold", type=float, default=0.5,
                         help="The probability threshold for keeping an object segmentation mask")
     parser.add_argument("--n_dilation_iters", type=int, default=7,
