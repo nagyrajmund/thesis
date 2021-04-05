@@ -10,8 +10,9 @@ from matplotlib.axes import Axes
 from matplotlib import pyplot as plt
 
 from models.wrappers.inpainting import InpaintingModel
-from models.wrappers.segmentation import SegmentationModel
+from models.wrappers.segmentation import InstanceSegmentationModel
 from models.wrappers.generation import ImageGenerator
+from models.wrappers.classification import SceneRecognitionModel
 from scripts import utils
 from tqdm import tqdm
 
@@ -108,49 +109,46 @@ def plot_interpolation(
 
     interpolation_imgs = generative_model.interpolate(
         original_image, baseline_image, args.n_steps, add_original_images=False)
- 
-    _plot_interpolation_array(
-        original_image, baseline_image, mask, interpolation_imgs,
-        interpolation_axes,
-        original_img_axes,
-        model_output_axes
-    )
+
+    _plot_original_and_baseline_img(original_image, baseline_image, mask, original_img_axes)
+    _plot_interpolation_array(interpolation_imgs, interpolation_axes)
+
+def _plot_original_and_baseline_img(
+    original_image: PIL.Image.Image,
+    baseline_image: PIL.Image.Image,
+    mask: np.ndarray,
+    original_img_axes: Axes
+):
+    """
+    TODO(RN) update documentation
+    """
+     # Then, we plot the overlays for the original and the baseline image on the upper row
+    overlay = lambda img, mask : blend(img, utils.opencv_to_pillow_image(mask), alpha = 0.3)
+    
+    original_with_mask = overlay(original_image,  mask)
+    baseline_with_mask = overlay(baseline_image, mask)
+    
+    utils.plot_image(original_img_axes[0], original_image, "original image")
+    utils.plot_image(original_img_axes[1], original_with_mask, "original image with mask")
+    utils.plot_image(original_img_axes[-2], baseline_with_mask, "baseline image with mask")
+    utils.plot_image(original_img_axes[-1], baseline_image, "baseline image")
 
 
 def _plot_interpolation_array(
-    original_img: PIL.Image.Image,
-    baseline_img: PIL.Image.Image,
-    mask: np.ndarray,
     interpolation_imgs: List[PIL.Image.Image],
-    interpolation_axes: Axes,
-    original_img_axes: Axes,
-    model_output_axes: Axes
+    interpolation_axes: Axes
 ):
     """
+    TODO(RN) update documentation
+
     Plot the latent interpolation found in img_list. Additionally, if 'mask'
     is given, its overlay on the original image and the baseline will be shown.
     """
-    def plot_image(axis, image, label=None):
-        axis.imshow(image)
-        if label is not None:
-            axis.set_title(label)
-
     # Plot the latent interpolation between the reconstructions of the 
     # input and the baseline images
     for i, (axis, image) in enumerate(zip(interpolation_axes, interpolation_imgs)):
-        label = "reconstruction" if i == 0 or i == args.n_steps - 1 else None
-        plot_image(axis, image, label)
-
-    # Then, we plot the overlays for the original and the baseline image on the upper row
-    overlay = lambda img, mask : blend(img, utils.opencv_to_pillow_image(mask), alpha = 0.3)
-    
-    original_with_mask = overlay(original_img,  mask)
-    baseline_with_mask = overlay(baseline_img, mask)
-    
-    plot_image(original_img_axes[0], original_img, "original image")
-    plot_image(original_img_axes[1], original_with_mask, "original image with mask")
-    plot_image(original_img_axes[-2], baseline_with_mask, "baseline image with mask")
-    plot_image(original_img_axes[-1], baseline_img, "baseline image")
+        title = "reconstruction" if i == 0 or i == args.n_steps - 1 else None
+        utils.plot_image(axis, image, title)
 
 
 if __name__ == "__main__":
@@ -159,7 +157,8 @@ if __name__ == "__main__":
     utils.save_args_to_output_dir(args)    
 
     inpainting_model = InpaintingModel()
-    segmentation_model = SegmentationModel()
+    segmentation_model = InstanceSegmentationModel()
     generative_model = ImageGenerator()
-    
+    classifier = SceneRecognitionModel()
+
     main()

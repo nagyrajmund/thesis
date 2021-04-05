@@ -4,9 +4,9 @@ import numpy as np
 import cv2
 
 import matplotlib.pyplot as plt
-
+from tqdm import tqdm
 from models.wrappers.inpainting import InpaintingModel
-from models.wrappers.segmentation import SegmentationModel
+from models.wrappers.segmentation import InstanceSegmentationModel
 from scripts import utils
 
 
@@ -31,10 +31,11 @@ def main():
               all of them.
     """
     inpainting_model = InpaintingModel()
-    segmentation_model = SegmentationModel(threshold=0.5)
+    segmentation_model = InstanceSegmentationModel(threshold=0.5)
     
-    for file in os.listdir(args.data_dir):
-        print(file)
+    progress_bar = tqdm(os.listdir(args.data_dir))
+    for file in progress_bar:
+        progress_bar.set_description(file)
         image = cv2.imread(join(args.data_dir, file))
         # overlay = segmentation_model.draw_segmentation_overlay(image)
         # plt.imshow(overlay)

@@ -26,7 +26,7 @@ def binary_masks_to_opencv_images(masks):
 
     return masks
 
-class SegmentationModel:
+class InstanceSegmentationModel:
     """
     A wrapper around pretrained instance segmentation models from the Detectron2 model zoo.
 

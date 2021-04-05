@@ -111,7 +111,7 @@ class SceneRecognitionModel:
         semantic_mask : PIL.Image.Image,
         semantic_scores : PIL.Image.Image
         # Unsupported at the moment!
-    ):
+    ) -> torch.Tensor:
         if image.mode is not "RGB":
             image = image.convert("RGB")
         

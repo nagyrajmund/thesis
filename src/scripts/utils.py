@@ -1,7 +1,7 @@
 from argparse import ArgumentError, ArgumentParser, Namespace
 import os, sys
 from contextlib import nullcontext
-from typing import ContextManager, List, Dict, Union
+from typing import List, Dict, Union
 import shutil
 import numpy as np
 import detectron2
@@ -10,10 +10,12 @@ import cv2
 import json
 from os.path import join
 from matplotlib import pyplot as plt
+plt.style.use('fivethirtyeight')
 import PIL
 from typing import Tuple
 from pprint import pprint
-    
+from matplotlib.axes import Axes
+
 def create_default_argparser(**override_defaults_kwargs) -> ArgumentParser:
     """
     Return an ArgumentParser with common arguments such as the input/output folders.
@@ -105,6 +107,18 @@ def create_log_manager(disable_logs: bool = True) -> Union[LogDisabler, nullcont
         return LogDisabler()
     else:
         return nullcontext()
+
+def plot_image(axis: Axes, image: PIL.Image.Image, title: str = None, xlabel: str = None):
+    """
+    Plot the image on the axis with the given title.
+    """
+    axis.imshow(image)
+
+    if title is not None:
+        axis.set_title(title)
+    
+    if xlabel is not None:
+        axis.set_xlabel(xlabel)
 
 def plot_image_grid(images: np.ndarray, labels: Dict[int, str] = {}):
     """
