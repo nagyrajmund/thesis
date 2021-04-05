@@ -14,6 +14,9 @@ from typing import Tuple
 from scripts.utils import infer_detectron2_class_names
 
 def binary_masks_to_opencv_images(masks):
+    """
+    Convert a sequence of binary masks into openCV images.
+    """
     masks = masks.numpy()
     masks = [ PIL.Image.fromarray(mask).convert('RGB') for mask in masks ]
     masks = np.stack(masks)
@@ -31,9 +34,6 @@ class SegmentationModel:
         model_config:   The name of the model's config file in the model zoo
         device:         The device of the model ('cpu' or e.g. 'cuda')
         threshold:      The minimum threshold for accepting class predictions as positive
-    
-    Returns:
-        TODO(RN)
     """
     def __init__(self,
         config_file : str   = "COCO-InstanceSegmentation/mask_rcnn_R_50_FPN_3x.yaml",
@@ -62,7 +62,9 @@ class SegmentationModel:
         
         Returns:
             pred_masks:     the binary instance segmentation masks of shape (N, H, W)
-            pred_classes (if return_labels is True):    the corresponding class labels of shape (N)
+            
+            (if return_labels is True)
+            pred_classes:   the corresponding class labels of shape (N)
         """
         outputs = self.predictor(image)["instances"]
     

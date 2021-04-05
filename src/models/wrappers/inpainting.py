@@ -1,9 +1,11 @@
 import numpy as np
 import tensorflow as tf
-import neuralgym as ng
-
-from models.backend.deepfill.inpaint_model import InpaintCAModel
 from scripts.utils import create_log_manager
+
+# Disable tensorflow deprecation warnings
+with create_log_manager():
+    import neuralgym as ng
+    from models.backends.deepfill.inpaint_model import InpaintCAModel
 
 class InpaintingModel:
     """
@@ -16,7 +18,7 @@ class InpaintingModel:
         self.log_manager = create_log_manager(disable_logs)
         
         with self.log_manager:
-            self.flags = ng.Config('../models/backend/deepfill/inpaint.yml')
+            self.flags = ng.Config('../models/backends/deepfill/inpaint.yml')
             self.model = InpaintCAModel()
 
     def inpaint(self, image: np.ndarray, mask: np.ndarray) -> np.ndarray:

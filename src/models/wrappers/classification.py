@@ -4,9 +4,8 @@ import numpy as np
 import torch
 from torchvision import transforms
 
-from models.backend.SASceneNet import utils
-from models.backend.SASceneNet.SASceneNet import SASceneNet
-
+from models.backends.SASceneNet import utils
+from models.backends.SASceneNet.SASceneNet import SASceneNet
 
 class PlacesDatasetMetadata:
     """

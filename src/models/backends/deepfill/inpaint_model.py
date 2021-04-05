@@ -10,9 +10,9 @@ from neuralgym.ops.summary_ops import gradients_summary
 from neuralgym.ops.layers import flatten, resize
 from neuralgym.ops.gan_ops import gan_hinge_loss
 
-from models.backend.deepfill.inpaint_ops import gen_conv, gen_deconv, dis_conv
-from models.backend.deepfill.inpaint_ops import random_bbox, bbox2mask, brush_stroke_mask
-from models.backend.deepfill.inpaint_ops import resize_mask_like, contextual_attention
+from models.backends.deepfill.inpaint_ops import gen_conv, gen_deconv, dis_conv
+from models.backends.deepfill.inpaint_ops import random_bbox, bbox2mask, brush_stroke_mask
+from models.backends.deepfill.inpaint_ops import resize_mask_like, contextual_attention
 
 
 logger = logging.getLogger()
