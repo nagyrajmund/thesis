@@ -18,7 +18,7 @@ def parse_args():
 
     parser.add_argument("--n_steps", type=int, default=7,
                         help="The number of interpolation steps")
-    parser.add_argument("--dilation", type=int, default=10,
+    parser.add_argument("--dilation", type=int, default=7,
                         help="The number of mask dilation iterations")
     args = parser.parse_args()
         

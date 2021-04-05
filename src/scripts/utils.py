@@ -160,4 +160,4 @@ def dilate_mask(mask: np.ndarray, n_iters: int, kernel_size: int = 3) -> np.ndar
     """
     kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (kernel_size, kernel_size))
     
-    return cv2.dilate(mask, kernel, n_iters)
+    return cv2.dilate(mask, kernel, iterations = n_iters)
