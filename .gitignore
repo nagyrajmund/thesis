@@ -5,3 +5,4 @@ src/*.egg-info/*
 utils/deepfill_checkpoint
 utils/dall_e_checkpoint
 utils/SAScene_checkpoint
+src/scripts/outputs
