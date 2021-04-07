@@ -1,11 +1,16 @@
-
+import os
 import PIL
+from scripts import utils
+import torch
+from matplotlib import pyplot as plt
+from torch.nn.functional import softmax
 import numpy as np
 import torch
 from torchvision import transforms
 
 from models.backends.SASceneNet import utils
 from models.backends.SASceneNet.SASceneNet import SASceneNet
+from models.wrappers.segmentation import SemanticSegmentationModel
 
 class PlacesDatasetMetadata:
     """
@@ -62,12 +67,11 @@ class PlacesDatasetMetadata:
             self.val_transforms_sem_mask = transforms.Compose([
                 transforms.CenterCrop(self.output_size),
                 transforms.Lambda(
-                    lambda sem: torch.from_numpy(np.asarray(sem) + 1).long().permute(2, 0, 1))
+                    lambda sem: torch.from_numpy(np.asarray(sem) + 1).long())
             ])
 
             self.val_transforms_sem_scores = transforms.Compose([
-                transforms.CenterCrop(self.output_size),
-                transforms.ToTensor(),
+                transforms.CenterCrop(self.output_size)
             ])
         
     def load_class_names(self):
@@ -90,12 +94,15 @@ class PlacesDatasetMetadata:
 
 class SceneRecognitionModel:
     def __init__(self, 
+        segmentation_model : SemanticSegmentationModel,
         model_path   : str = "../../utils/SAScene_checkpoint/SAScene_ResNet18_Places.pth.tar",
         device       : str = "cpu",
         do_ten_crops : bool = False
     ):
+    #TODO(RN) documentation
         self.do_ten_crops = do_ten_crops
         self.dataset = PlacesDatasetMetadata(do_ten_crops)
+        self.segmentation_model = segmentation_model
         self.model = SASceneNet(
             arch = "ResNet-18",
             scene_classes = self.dataset.n_scene_classes, 
@@ -109,18 +116,15 @@ class SceneRecognitionModel:
         self.model.eval()
 
     def predict(self,
-        image : PIL.Image.Image,
-        semantic_mask : PIL.Image.Image,
-        semantic_scores : PIL.Image.Image
+        image : PIL.Image.Image
         # Unsupported at the moment!
     ) -> torch.Tensor:
         if image.mode is not "RGB":
             image = image.convert("RGB")
         
+        semantic_mask, semantic_scores = self.get_segmentation(image)
         image = self.dataset.val_transforms_img(image)
-        semantic_mask = self.dataset.val_transforms_sem_mask(semantic_mask)
-        semantic_scores = self.dataset.val_transforms_sem_scores(semantic_scores)
-
+        
         if self.do_ten_crops:
             expected_shape = (10, 3, self.dataset.output_size, self.dataset.output_size)
         else:
@@ -171,3 +175,11 @@ class SceneRecognitionModel:
         
         # Compute class accuracy
         return outputSceneLabels
+
+    def get_segmentation(self, image):
+        semantic_mask, semantic_scores = self.segmentation_model.compute_top3_segmentation_masks(image)
+
+        semantic_mask = self.dataset.val_transforms_sem_mask(semantic_mask)
+        semantic_scores = self.dataset.val_transforms_sem_scores(semantic_scores)
+
+        return semantic_mask, semantic_scores

@@ -5,6 +5,7 @@ import PIL
 from tqdm import tqdm
 from models.wrappers.classification import SceneRecognitionModel
 from argparse import Namespace
+from models.wrappers.segmentation import SemanticSegmentationModel
 from scripts import utils
 import pandas as pd
 import torch
@@ -25,22 +26,22 @@ def main():
     """
     This script shows the classifier's outputs for images from the validation dataset.
     """   
-    file_labels = load_image_labels()
 
     progress_bar = tqdm(os.listdir(args.data_dir))
     for file in progress_bar:
         progress_bar.set_description(file)
+        image = PIL.Image.open(join(args.data_dir, file))
         
-        image, semantic_mask, semantic_scores = load_image_and_segmentation(file, file_labels)
-        
-        pred = classifier.predict(image, semantic_mask, semantic_scores)
+        pred = classifier.predict(image)
         pred = softmax(pred.squeeze(), dim=0)
         class_probs, class_idxs = torch.topk(pred, k=5)
         plt.imshow(image)
+        
         plt.title("\n".join(
             classifier.dataset.class_names[class_idxs[i]] + f" ({100 * class_probs[i]:.2f}%)"
-            for i in range(len(class_probs))
-        ))
+            for i in range(len(class_probs)))
+        )
+        plt.axis('off')
         plt.show()
 
 def load_image_labels():
@@ -60,13 +61,14 @@ def load_image_and_segmentation(file: str, file_labels: pd.DataFrame) -> Tuple[P
     label_name = classifier.dataset.class_names[label_idx]
 
     image = PIL.Image.open(join(args.data_dir, file))
+    #semantic_mask, semantic_scores = classifier.get_segmentation(image)
     semantic_mask = PIL.Image.open(join(args.segmentation_dir, "noisy_annotations_RGB", "val", label_name, file.replace(".jpg", ".png")))
     semantic_scores = PIL.Image.open(join(args.segmentation_dir, "noisy_scores_RGB", "val", label_name, file.replace(".jpg", ".png")))
-
     return image, semantic_mask, semantic_scores
 
 
 if __name__ == "__main__":
     args = parse_args()
-    classifier = SceneRecognitionModel()
+    segmentation_net = SemanticSegmentationModel()
+    classifier = SceneRecognitionModel(segmentation_net)
     main()

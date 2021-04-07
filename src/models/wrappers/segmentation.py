@@ -6,26 +6,70 @@ from detectron2.engine import DefaultPredictor
 from detectron2.utils.logger import setup_logger
 from detectron2.utils.visualizer import Visualizer
 from detectron2.data import MetadataCatalog
+from torchvision import transforms
 setup_logger()
+
+import torch
+from mit_semseg.config import cfg
+from mit_semseg.models import ModelBuilder, SegmentationModule
 
 import PIL
 from typing import Tuple
 
 from scripts.utils import infer_detectron2_class_names
 
-def binary_masks_to_opencv_images(masks):
+class SemanticSegmentationModel:
     """
-    Convert a sequence of binary masks into openCV images.
+    A wrapper around the UPerNet-50 semantic segmentation network, which is used
+    to acquire input segmentation masks for the SASceneNet classifier.
+
+    Args:
+        #TODO(RN) documentation
     """
-    masks = masks.numpy()
-    masks = [ PIL.Image.fromarray(mask).convert('RGB') for mask in masks ]
-    masks = np.stack(masks)
-    
-    # Convert to BGR
-    masks = masks[:, :, :, ::-1]
+    def __init__(self, config_file: str = "../../utils/upernet-50.yml"):
+        cfg.merge_from_file(config_file)
+        
+        self.model = self._construct_model()
+        
+        self.normalize = transforms.Normalize(
+            mean=[0.485, 0.456, 0.406],
+            std=[0.229, 0.224, 0.225]
+        )
 
-    return masks
+    def _construct_model(self):
+        net_encoder = ModelBuilder.build_encoder(
+            arch    = cfg.MODEL.arch_encoder.lower(),
+            fc_dim  = cfg.MODEL.fc_dim,
+            weights = cfg.MODEL.weights_encoder
+        )
 
+        net_decoder = ModelBuilder.build_decoder(
+            arch        = cfg.MODEL.arch_decoder.lower(),
+            fc_dim      = cfg.MODEL.fc_dim,
+            num_class   = cfg.DATASET.num_class,
+            weights     = cfg.MODEL.weights_decoder,
+            use_softmax = True
+        )
+
+        return SegmentationModule(net_encoder, net_decoder, crit=None)
+
+    def compute_top3_segmentation_masks(self, image: PIL.Image.Image):
+        # TODO(RN) support batch of images?
+        image = self._img_transform(image).unsqueeze(0)
+        feed_dict = {"img_data": image}
+        probs = self.model(feed_dict, segSize=(256, 256))
+        probs = probs.squeeze(0)
+
+        semantic_scores, semantic_mask = torch.topk(probs, 3, dim=0)
+        
+        return semantic_mask, semantic_scores
+
+    def _img_transform(self, img):
+        img = np.float32(np.array(img)) / 255.
+        img = img.transpose((2, 0, 1))
+        img = self.normalize(torch.from_numpy(img.copy())) #TODO(RN) Why copy?
+        
+        return img
 class InstanceSegmentationModel:
     """
     A wrapper around pretrained instance segmentation models from the Detectron2 model zoo.
@@ -99,3 +143,16 @@ class InstanceSegmentationModel:
         overlay = overlay.get_image()[:, :, ::-1]
         
         return overlay
+
+def binary_masks_to_opencv_images(masks):
+    """
+    Convert a sequence of binary masks into openCV images.
+    """
+    masks = masks.numpy()
+    masks = [ PIL.Image.fromarray(mask).convert('RGB') for mask in masks ]
+    masks = np.stack(masks)
+    
+    # Convert to BGR
+    masks = masks[:, :, :, ::-1]
+
+    return masks

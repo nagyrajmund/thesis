@@ -18,5 +18,8 @@ pip install dall-e
 # scene recognition model
 pip install imgaug
 
+# segmentation for the scene recognition
+pip install git+https://github.com/CSAILVision/semantic-segmentation-pytorch.git@master
+
 pip install -e .
 ```
