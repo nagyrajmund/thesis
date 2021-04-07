@@ -17,8 +17,8 @@ class PlacesDatasetMetadata:
                        (see https://pytorch.org/vision/stable/transforms.html#torchvision.transforms.TenCrop)
     """
     def __init__(self, do_ten_crops: bool):
-        self.classes = self.load_class_names()
-        self.n_scene_classes = len(self.classes)
+        self.class_names, self.class_folders = self.load_class_names()
+        self.n_scene_classes = len(self.class_names)
         self.n_semantic_classes = 151
         assert self.n_scene_classes == 365
 
@@ -71,20 +71,22 @@ class PlacesDatasetMetadata:
             ])
         
     def load_class_names(self):
-        classes = list()
-        class_file_name = "../models/backend/SASceneNet/categories_places365.txt"
+        class_names = []
+        class_folders = []
+        class_file_name = "../models/backends/SASceneNet/categories_places365.txt"
 
         with open(class_file_name) as class_file:
             for line in class_file:
                 line = line.split()[0]
+                class_folders.append(line)
                 split_indices = [i for i, letter in enumerate(line) if letter == '/']
                 # Check if there a class with a subclass inside (outdoor, indoor)
                 if len(split_indices) > 2:
                     line = line[:split_indices[2]] + '-' + line[split_indices[2]+1:]
 
-                classes.append(line[split_indices[1] + 1:])
+                class_names.append(line[split_indices[1] + 1:])
         
-        return classes
+        return class_names, class_folders
 
 class SceneRecognitionModel:
     def __init__(self, 
