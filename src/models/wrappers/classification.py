@@ -115,16 +115,12 @@ class SceneRecognitionModel:
         self.model.to(device)
         self.model.eval()
 
-    def predict(self,
-        image : PIL.Image.Image
-        # Unsupported at the moment!
+    def predict_from_tensors(self,
+        image: torch.Tensor,
+        semantic_mask: torch.Tensor,
+        semantic_scores: torch.Tensor,
+        track_image_gradients: bool = False
     ) -> torch.Tensor:
-        if image.mode is not "RGB":
-            image = image.convert("RGB")
-        
-        semantic_mask, semantic_scores = self.get_segmentation(image)
-        image = self.dataset.val_transforms_img(image)
-        
         if self.do_ten_crops:
             expected_shape = (10, 3, self.dataset.output_size, self.dataset.output_size)
         else:
@@ -133,11 +129,12 @@ class SceneRecognitionModel:
         for tensor in (image, semantic_mask, semantic_scores):
             assert tensor.shape == expected_shape
 
-        image = image.unsqueeze(0)
-        semantic_mask = semantic_mask.unsqueeze(0)
-        semantic_scores = semantic_scores.unsqueeze(0)
+        image.unsqueeze_(0)
+        semantic_mask.unsqueeze_(0)
+        semantic_scores.unsqueeze_(0)
 
         batch_size = image.shape[0]
+
         if self.do_ten_crops:
             n_crops = image.shape[1]
             # Fuse batch size and ncrops to set the input for the network
@@ -149,7 +146,10 @@ class SceneRecognitionModel:
             
         # Create tensor of probabilities from semantic_mask
         semanticTensor = utils.make_one_hot(semantic_mask, semantic_scores, C=self.dataset.n_semantic_classes)
-        
+                
+        if track_image_gradients:
+            image.requires_grad_()
+
         # Model Forward
         outputSceneLabels, feature_conv, outputSceneLabelRGB, outputSceneLabelSEM = self.model(image, semanticTensor)
 
@@ -159,6 +159,20 @@ class SceneRecognitionModel:
             outputSceneLabelRGB = outputSceneLabelRGB.view(batch_size, n_crops, -1).mean(1)
             outputSceneLabelSEM = outputSceneLabelSEM.view(batch_size, n_crops, -1).mean(1)
 
+        return outputSceneLabels
+
+    def predict(self,
+        image : PIL.Image.Image,
+        track_image_gradients: bool = False
+    ) -> torch.Tensor:
+        if image.mode is not "RGB":
+            image = image.convert("RGB")
+        
+        semantic_mask, semantic_scores = self.get_segmentation(image)
+        image = self.dataset.val_transforms_img(image)
+
+        return self.predict_from_tensors(image, semantic_mask, semantic_scores, track_image_gradients)
+        
         # if batch_size is 1:
         #     feature_conv = torch.unsqueeze(feature_conv[4, :, :, :], 0)
         #     image = torch.unsqueeze(image[4, :, :, :], 0)
@@ -174,7 +188,7 @@ class SceneRecognitionModel:
         #     #                         image, classes, i, set, save=True)
         
         # Compute class accuracy
-        return outputSceneLabels
+        
 
     def get_segmentation(self, image):
         semantic_mask, semantic_scores = self.segmentation_model.compute_top3_segmentation_masks(image)

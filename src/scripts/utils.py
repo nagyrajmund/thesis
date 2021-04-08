@@ -29,10 +29,10 @@ def create_default_argparser(**override_defaults_kwargs) -> ArgumentParser:
                         help="The folder where the input images will be read from")
 
     parser.add_argument("--output_dir", type=str, default=None,
-                        help="The folder where the script's outputs will be saved")
+                        help="The folder where the script's outputs will be saved if 'show_plot' is False.")
 
     parser.add_argument("--show_plot", action="store_true",
-                        help="If set,the script's results are shown on the screen in addition to saving them to 'output_dir'")
+                        help="If set,the script's results are shown on the screen instead of saving them to 'output_dir'")
 
     parser.set_defaults(**override_defaults_kwargs)
 
