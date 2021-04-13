@@ -111,7 +111,9 @@ class InstanceSegmentationModel:
             pred_classes:   the corresponding class labels of shape (N)
         """
         outputs = self.predictor(image)["instances"]
-    
+        if len(outputs)== 0:
+            print("ERROR: the instance segmentation network did not find any objects.")
+            exit(-1)
         # The instance masks of shape (N, H, W) containing bool values
         pred_masks = outputs.pred_masks
         pred_masks = binary_masks_to_opencv_images(pred_masks)

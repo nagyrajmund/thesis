@@ -1,7 +1,7 @@
 from argparse import ArgumentError, ArgumentParser, Namespace
 import os, sys
 from contextlib import nullcontext
-from typing import List, Dict, Union
+from typing import Any, List, Dict, Union
 import shutil
 import numpy as np
 import detectron2
@@ -37,6 +37,14 @@ def create_default_argparser(**override_defaults_kwargs) -> ArgumentParser:
     parser.set_defaults(**override_defaults_kwargs)
 
     return parser
+
+def add_choices(arg_name: str, choices: List[Any], parser: ArgumentParser, help: str = None):
+    if help is None:
+        help = f"One of the following: {choices}."
+
+    parser.add_argument(arg_name, 
+        choices = choices, default = choices[0],
+        help=help)
 
 def save_args_to_output_dir(args: Namespace, print_args: bool = True):
     """
@@ -120,7 +128,7 @@ def plot_image(axis: Axes, image: PIL.Image.Image, title: str = None, xlabel: st
     if xlabel is not None:
         axis.set_xlabel(xlabel)
 
-def plot_image_grid(images: np.ndarray, labels: Dict[int, str] = {}):
+def plot_image_grid(images: np.ndarray, labels: Dict[int, str] = {}, axes: Axes = None):
     """
     Plot a 1D grid of images and use the 'labels' as their titles (when given).
 
@@ -139,7 +147,8 @@ def plot_image_grid(images: np.ndarray, labels: Dict[int, str] = {}):
         
         return
 
-    _, axes = plt.subplots(1, n, gridspec_kw = {'wspace': 0, 'hspace': 0})
+    if axes is None:
+        _, axes = plt.subplots(1, n, gridspec_kw = {'wspace': 0, 'hspace': 0})
 
     for i, ax in enumerate(axes):
         ax.imshow(images[i])

@@ -30,7 +30,7 @@ class InpaintingModel:
             mask:       A binary OpenCV image of shape (H, W, C)
 
         Returns:
-            The inpainted image.
+            The inpainted image in RGB order.
         """
         with self.log_manager:
             assert image.shape == mask.shape
