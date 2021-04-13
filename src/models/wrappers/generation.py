@@ -1,5 +1,6 @@
 from os.path import join
 from typing import List
+from tqdm import tqdm
 
 import PIL
 import numpy as np
@@ -9,8 +10,6 @@ import torchvision.transforms.functional as TF
 import torch.nn.functional as F
 
 import dall_e
-
-
 
 class ImageGenerator:
     """
@@ -75,7 +74,8 @@ class ImageGenerator:
         image_a             : PIL.Image.Image, 
         image_b             : PIL.Image.Image, 
         n_steps             : int = 5,
-        add_original_images : bool = False
+        add_original_images : bool = False,
+        print_progress_bar  : bool = True
     ) -> List[PIL.Image.Image]:
         """
         Return a latent linear interpolation between DALL-E's reconstruction of
@@ -87,7 +87,11 @@ class ImageGenerator:
         alphas = np.linspace(0, 1, n_steps)
         interpolation_path = torch.stack([(1-a)*z_a + a*z_b for a in alphas])
         
-        interpolation = [self.decode(z) for z in interpolation_path]
+        if print_progress_bar:
+            progress_bar = tqdm(interpolation_path, desc="Computing the latent interpolation", leave=False)
+            interpolation = [self.decode(z) for z in progress_bar]
+        else:
+            interpolation = [self.decode(z) for z in interpolation_path]
 
         if add_original_images:
             interpolation = [image_a] + interpolation + [image_b]
