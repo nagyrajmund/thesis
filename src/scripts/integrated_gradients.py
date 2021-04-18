@@ -24,8 +24,10 @@ def parse_args() -> Namespace:
     """
     parser = utils.create_default_argparser(output_dir = "outputs/integrated_gradients")
     
+    parser.add_argument("--object_centric", action="store_true")
+
     utils.add_choices("--interpolation", choices=["linear-input", "linear-latent"], parser=parser)
-    
+
     utils.add_choices("--baseline", choices=["black", "inpainted", "random"], parser=parser)
 
     utils.add_choices("--colors", choices=["green-red", "black-white"], parser=parser)
@@ -66,12 +68,14 @@ def main():
     progress_bar = tqdm(sorted(os.listdir(args.data_dir)))
     for i, file in enumerate(progress_bar):
         progress_bar.set_description(file)
-        interpolation_images = create_interpolation(baseline, image)
-        target_label = get_target_label(interpolation_images)
 
         image = open_pil_image(file)
         baseline = get_baseline(image)
 
+        if args.object_centric:
+            interpolation_images = create_interpolation_object_centric(baseline, image)
+        else:
+            interpolation_images = create_interpolation(baseline, image)
 
         if args.target_label is None:
             target_label, prob = get_classifier_prediction(file)
@@ -101,50 +105,112 @@ def main():
             print(f"ERROR: unknown visualization type {args.visualization}!")
             exit(-1)
 
-        plot_results(interpolation_images, attributions, target_label, file, axis, skip_saving)
+        plot_results(interpolation_images, attributions, target_label, prob, file, axis, skip_saving)
 
 # -----------------------------------------------------------------------------------
-
-def open_image(filename: str) -> np.ndarray:
+def open_pil_image(filename: str) -> PIL.Image.Image:
+    """
+    Return the given image file as an RGB PIL Image.
+    """
     image_pil   = PIL.Image.open(join(args.data_dir, filename)).convert("RGB")
-    image_np    = np.asarray(image_pil) / 255
     
-    return image_np
+    return image_pil
 
-def get_target_label(interpolation_images: List[PIL.Image.Image]) -> int:
-    if args.target_label is not None:
-        return args.target_label
+
+def get_classifier_prediction(file: str) -> int:
+    image = open_pil_image(file)
     
-    return classifier.predict(interpolation_images[-1]).squeeze().argmax().item()
+    preds = classifier.predict(image).squeeze()
+    label = preds.argmax().item()
+    prob = softmax(preds.detach().numpy()).max().item()
+
+    return label, prob
 
 
-def get_baseline(file: str) -> np.ndarray:
-    image = cv2.imread(join(args.data_dir, file))
+def get_baseline(image: PIL.Image.Image) -> np.ndarray:
+    """
+    Return the IG baseline corresponding to the given image file.
+    """
     if args.baseline == "black":
-        baseline = np.zeros_like(image)
+        baseline = np.zeros_like(np.asarray(image), dtype=np.uint8)
 
     elif args.baseline == "random":
-        baseline = np.random.randn(*image.shape)
+        shape = np.asarray(image).shape
+        # Fill with Gaussian noise
+        baseline = np.random.randn(*shape)
+        baseline = np.uint8(baseline * 255)
 
     elif args.baseline == "inpainted":
-        mask = get_object_mask(image)
-        baseline = inpainting_model.inpaint(image, mask)
-        baseline = baseline / 255
+        cv_image = utils.pil_to_opencv_image(image)
+        mask = get_object_masks(cv_image, merge_objects = True).squeeze()
+        # TODO(RN) is mask right?
+        baseline = inpainting_model.inpaint(cv_image, mask)
+
     else:
         print(f"ERROR: unexpected baseline '{args.baseline}'!")
         exit(-1)
 
-    return baseline
+    return PIL.Image.fromarray(baseline)
 
-def get_object_mask(image) -> np.ndarray:
-    masks = instance_segmentation_model.extract_segmentation(image)
-    # TODO(RN): merge masks or use multiple baselines
-    mask = masks.max(axis = 0, keepdims = False)
+def get_object_masks(
+    image: Union[np.ndarray, PIL.Image.Image],
+    merge_objects: bool,
+    return_labels: bool = False
+) -> np.ndarray:
+    """
+    TODO(RN) documentation
+    """
+    # The instance segmentation model expects OpenCV images
+    if isinstance(image, PIL.Image.Image):
+        image = utils.pil_to_opencv_image(image)
+
+    if return_labels:
+        masks, labels = instance_segmentation_model.extract_segmentation(image, return_labels=True)
+    else:
+        masks = instance_segmentation_model.extract_segmentation(image, return_labels=False)
+
+    if merge_objects:
+        masks = masks.max(axis = 0, keepdims = True)
 
     if args.dilation > 0:
-        mask = utils.dilate_mask(mask, n_iters=args.dilation)
+        for i in range(len(masks)):
+            masks[i] = utils.dilate_mask(masks[i], n_iters=args.dilation)
 
-    return mask
+    if return_labels:
+        return masks, labels
+    else:
+        return masks
+
+def create_interpolation_object_centric(
+    baseline: PIL.Image,
+    image: PIL.Image
+) -> List[PIL.Image.Image]:
+    """
+    TODO(RN) documentation
+    """
+    masks, labels = get_object_masks(image, merge_objects = False, return_labels = True)
+    
+    # The interpolation should be from baseline to original image, but we build it
+    # from original image to baseline instead, and reverse it later.
+    # This is logical because we keep removing objects from the original instead of
+    #  adding objects to the baseline.
+    interpolation = [image]
+
+    progress_bar = tqdm(
+        zip(masks, labels), 
+        desc="Removing objects sequentially", leave=False, total=len(masks)
+    )
+    
+    for mask, label in progress_bar:
+        # In each iteration we remove one more object
+        cv_image = utils.pil_to_opencv_image(image)
+        image = inpainting_model.inpaint(cv_image, mask)
+        interpolation.append(PIL.Image.fromarray(image))
+    
+    interpolation.append(baseline)
+    interpolation.reverse()
+
+    return interpolation
 
 def create_interpolation(
     baseline: np.ndarray, 
@@ -288,7 +354,7 @@ if __name__ == "__main__":
         segmentation_model = SemanticSegmentationModel()
     )
 
-    if args.baseline == "inpainted":
+    if args.baseline == "inpainted" or args.object_centric:
         instance_segmentation_model = InstanceSegmentationModel()
         inpainting_model = InpaintingModel()
 

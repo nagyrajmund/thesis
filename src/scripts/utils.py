@@ -157,15 +157,6 @@ def plot_image_grid(images: np.ndarray, labels: Dict[int, str] = {}, axes: Axes 
         if i in labels:
             ax.set_title(labels[i])
 
-def opencv_to_pillow_image(opencv_image: np.ndarray) -> PIL.Image.Image:
-    """
-    Convert the given openCV image to a Pillow image (from a BGR to an RGB channel order).
-    """
-    opencv_image = cv2.cvtColor(opencv_image, cv2.COLOR_BGR2RGB)
-    pillow_image = PIL.Image.fromarray(opencv_image)
-
-    return pillow_image
-
 def get_figsize(n_rows: int, n_cols: int, subplot_size: int = 5) -> Tuple[float, float]:
     """
     Return an appropriate figure size for a plot with the given number of rows and columns.
@@ -184,3 +175,30 @@ def dilate_mask(mask: np.ndarray, n_iters: int, kernel_size: int = 3) -> np.ndar
     kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (kernel_size, kernel_size))
     
     return cv2.dilate(mask, kernel, iterations = n_iters)
+
+def pil_to_opencv_image(pil_image: PIL.Image.Image) -> np.ndarray:
+    """
+    Return the given PIL image converted to an OpenCV image.
+    
+    NOTE: OpenCV images are (H,W,C) float arrays with values from 0 to 1
+    with a BGR channel order.
+    """
+    # Convert to BGR
+    cv_image = np.asarray(pil_image)[:,:,::-1]
+    
+    return cv_image
+
+def opencv_to_pil_image(opencv_image: np.ndarray) -> PIL.Image.Image:
+    """
+    Return the given OpenCV image converted to a PIL image
+    
+    NOTE: PIL images have a shape of (H,W,C) with an RGB channel order, and
+    they have np.uint8 values from 0 to 255.
+    """
+    # Convert to RGB
+    image = cv2.cvtColor(opencv_image, cv2.COLOR_BGR2RGB)
+    # Convert from float to uint8
+    image = np.uint8(image)
+    
+    pil_image = PIL.Image.fromarray(image)
+    return pil_image
