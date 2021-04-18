@@ -3,8 +3,10 @@ from PIL.Image import blend
 from argparse import Namespace
 from os.path import join
 import os
-from typing import List, Union
+from typing import List, Tuple, Union
 from matplotlib import pyplot as plt
+from matplotlib.axes import Axes
+import matplotlib
 from matplotlib.gridspec import GridSpec
 import numpy as np
 from models.wrappers.classification import SceneRecognitionModel
@@ -24,31 +26,36 @@ def parse_args() -> Namespace:
     """
     parser = utils.create_default_argparser(output_dir = "outputs/integrated_gradients")
     
-    parser.add_argument("--object_centric", action="store_true")
+    parser.add_argument("--object_centric", action="store_true",
+                        help="This flag enables the object centric version of the algorithm, " + \
+                             "where we linearly interpolate between sequentially inpainted "   + \
+                             "versions of the original image, i.e. objects are removed one-by-one.")
 
     utils.add_choices("--interpolation", choices=["linear-input", "linear-latent"], parser=parser)
 
     utils.add_choices("--baseline", choices=["black", "inpainted", "random"], parser=parser)
 
-    utils.add_choices("--colors", choices=["green-red", "black-white"], parser=parser)
+    utils.add_choices("--heatmap_type", choices=["green-red", "product"], parser=parser)
     
-    utils.add_choices("--visualization", choices=["single", "single+interpolation", "grid"], parser=parser)
+    utils.add_choices("--plot_type", choices=["single", "single+interpolation", "grid"], parser=parser)
 
     parser.add_argument("--grid_size", type=int, default=5,
                         help="The number of rows/columns in the grid plot," + \
-                             "if 'visualization' is set to \"grid\".")
+                             "if 'visualization' is set to 'grid'.")
 
     parser.add_argument("--n_steps", type=int, default=30,
-                        help="The number of steps in the integral approximation")
+                        help="The number of steps in the integral approximation." +\
+                             "If 'object_centric' is set, then this is the number of steps " + \
+                             "between each inpainting.")
     
     parser.add_argument("--target_label", type=int, default=None,
                         help="The target label's index for IG. By default it is" + \
                              "the top-1 prediction of the classifier on the original image.")
 
     parser.add_argument("--dilation", type=int, default=7,
-                        help="If given, and the baseline is inpainted, then the" + \
-                             " binary mask of the instance segmentation network" + \
-                             " will be diluted by this number of iterations.")
+                        help="If given, and the baseline is inpainted, then the " + \
+                             "binary mask of the instance segmentation network " + \
+                             "will be diluted by this number of iterations.")
 
     args = parser.parse_args()
     
@@ -66,46 +73,31 @@ def main():
     in the given dataset.
     """
     progress_bar = tqdm(sorted(os.listdir(args.data_dir)))
-    for i, file in enumerate(progress_bar):
+    for idx, file in enumerate(progress_bar):
         progress_bar.set_description(file)
 
         image = open_pil_image(file)
         baseline = get_baseline(image)
-
+        
+        # Create interpolation
         if args.object_centric:
             interpolation_images = create_interpolation_object_centric(baseline, image)
         else:
             interpolation_images = create_interpolation(baseline, image)
 
+        # Select the target label
         if args.target_label is None:
-            target_label, prob = get_classifier_prediction(file)
+            target_label, prob = get_classifier_prediction(image)
         else:
-            target_label = args.target_label
-            prob = None
+            target_label, prob = args.target_label, None
 
-        attributions = integrated_gradients(
-            classifier, interpolation_images, target_label
-        )
+        # Calculate the IG attributions
+        attributions = integrated_gradients(classifier, interpolation_images, target_label)
         
-        if args.visualization == "grid":
-            
-            # Create subplot
-            if i % args.grid_size ** 2 == 0:
-                _, axes = plt.subplots(args.grid_size, args.grid_size)
-
-            axis = axes[i // args.grid_size, i % args.grid_size]
-            
-            skip_saving = False if (i+1) % args.grid_size**2 == 0 else True
+        plot_results(idx, interpolation_images, attributions, target_label, prob, file)
         
-        elif args.visualization == "single" or args.visualization == "single+interpolation":
-            axis = None
-            skip_saving = False
 
-        else:
-            print(f"ERROR: unknown visualization type {args.visualization}!")
-            exit(-1)
-
-        plot_results(interpolation_images, attributions, target_label, prob, file, axis, skip_saving)
+        
 
 # -----------------------------------------------------------------------------------
 def open_pil_image(filename: str) -> PIL.Image.Image:
@@ -117,9 +109,10 @@ def open_pil_image(filename: str) -> PIL.Image.Image:
     return image_pil
 
 
-def get_classifier_prediction(file: str) -> int:
-    image = open_pil_image(file)
-    
+def get_classifier_prediction(image: PIL.Image.Image) -> Tuple[int, float]:
+    """
+    Return the predicted label and its probability using the classifier.
+    """
     preds = classifier.predict(image).squeeze()
     label = preds.argmax().item()
     prob = softmax(preds.detach().numpy()).max().item()
@@ -158,7 +151,17 @@ def get_object_masks(
     return_labels: bool = False
 ) -> np.ndarray:
     """
-    TODO(RN) documentation
+    Run the instance segmentation model on the given OpenCV/PIL image, and return
+    the computed object mask(s) and optionally the class labels for each object.
+
+    Args:
+        image:  An image in the OpenCV or PIL format
+        merge_objects:  If set, then the object masks are merged together
+        return_labels:  If set, then the class labels are returned for each object
+    
+    Returns:
+        The binary masks with the same shape as the image, and the class labels 
+        if 'return_labels' is set.
     """
     # The instance segmentation model expects OpenCV images
     if isinstance(image, PIL.Image.Image):
@@ -186,55 +189,70 @@ def create_interpolation_object_centric(
     image: PIL.Image
 ) -> List[PIL.Image.Image]:
     """
-    TODO(RN) documentation
+    Create a list of images in such a way that objects are successively removed
+    from the original image using inpainting, then linear interpolation is performed
+    between the images with 'args.n_steps' steps. Finally, after every object is removed,
+    we interpolate to the baseline image.
+
+    NOTE: The returned list starts with the baseline and ends with the original image.
+
+    Args:
+        baseline:  The baseline image in the PIL format
+        image:  The original image in the PIL format
+    
+    Returns:
+        A list of interpolated images from baseline to the original image.
     """
     masks, labels = get_object_masks(image, merge_objects = False, return_labels = True)
     
-    # The interpolation should be from baseline to original image, but we build it
-    # from original image to baseline instead, and reverse it later.
-    # This is logical because we keep removing objects from the original instead of
-    #  adding objects to the baseline.
-    interpolation = [image]
-
+    
     progress_bar = tqdm(
         zip(masks, labels), 
         desc="Removing objects sequentially", leave=False, total=len(masks)
     )
-    
+
+    # We start with the original image
+    images = [image]
     for mask, label in progress_bar:
-        # In each iteration we remove one more object
+        # Remove the objects one-by-one and store the intermediate results
         cv_image = utils.pil_to_opencv_image(image)
         image = inpainting_model.inpaint(cv_image, mask)
-        interpolation.append(PIL.Image.fromarray(image))
+        images.append(PIL.Image.fromarray(image))
     
-    interpolation.append(baseline)
-    interpolation.reverse()
+    # We will interpolate from the fully inpainted image to the baseline
+    images.append(baseline)
+    # We expect that the interpolation goes from baseline to original image
+    images.reverse()
 
-    return interpolation
+    interpolations = []
+    for idx in range(len(images) - 1):
+        # Linearly interpolate between subsequent images
+        interpolations += [images[idx] * (1-a) + images[idx+1] * a
+                           for a in np.linspace(0, 1, num=args.n_steps)]
+    
+    interpolations = [PIL.Image.fromarray(np.uint8(image)) for image in interpolations]
+    utils.plot_image_grid(interpolations)
+    plt.show()
+    return interpolations
 
 def create_interpolation(
-    baseline: np.ndarray, 
-    image: np.ndarray
+    baseline: PIL.Image.Image, 
+    image: PIL.Image.Image
 ) -> List[PIL.Image.Image]:
     """
-    TODO(RN) documentation
+    Create a linear or latent interpolation between the baseline and the original image.
     """
-
     if args.interpolation == "linear-input":
         interpolation_np = [
             baseline * (1-a) + image * a 
             for a in np.linspace(0, 1, num=args.n_steps, endpoint=True)
         ]
 
-        interpolation_pil = [PIL.Image.fromarray(np.uint8(img*255)) for img in interpolation_np]
-
-
+        interpolation_pil = [PIL.Image.fromarray(np.uint8(img)) for img in interpolation_np]
+        
     elif args.interpolation == "linear-latent":
-        baseline_pil = PIL.Image.fromarray(np.uint8(baseline * 255))
-        image_pil = PIL.Image.fromarray(np.uint8(image * 255))
-
         interpolation_pil = generative_model.interpolate(
-            baseline_pil, image_pil, 
+            baseline, image, 
             n_steps = args.n_steps, 
             add_original_images=False
         )
@@ -246,30 +264,37 @@ def create_interpolation(
     
     return interpolation_pil
 
-
 def integrated_gradients(
     classifier: SceneRecognitionModel,
     interpolation_images: List[PIL.Image.Image], 
     label: int
 ) -> torch.Tensor:
     """
-    TODO(RN) documentation
+    Return the heatmap values as computed with integrated gradients.
+
+    Args:
+        classifier:  A classification network
+        interpolation_images:  A list of PIL images containing the interpolation 
+                               from the baseline to the original image
+        label:  The target class to condition on
+
+    Returns:
+        A tensor of shape (H,W,C) containing the heatmap values.
     """
     n_steps = len(interpolation_images)
     sum_gradients = torch.zeros(3, 224, 224)
-
     preprocess = lambda img : classifier.dataset.val_transforms_img(img)
 
     for img in tqdm(interpolation_images, desc="Calculating integrated gradients", leave=False):
         semantic_mask, semantic_scores = classifier.get_segmentation(img)
-        image = classifier.dataset.val_transforms_img(img)
+        image = preprocess(img)
 
         pred = classifier.predict_from_tensors(
             image, semantic_mask, semantic_scores, track_image_gradients=True)
         
         pred.squeeze_()
-        classifier.model.zero_grad()
 
+        classifier.model.zero_grad()
         pred[label].backward()
         gradient = image.grad.detach().squeeze()
 
@@ -277,56 +302,87 @@ def integrated_gradients(
 
     sum_gradients /= n_steps
     diff = (preprocess(interpolation_images[-1]) - preprocess(interpolation_images[0]))
+    
+    attributions = (diff * sum_gradients).permute(1,2,0)
+    
+    return attributions
 
-    return diff * sum_gradients
-
-def plot_results(interpolation_images, sum_grads, label, prob, file, axis=None, skip_saving=False):
+def plot_results(image_idx, interpolation_images, sum_grads, label, prob, file):
+    """
+    Plot the attribution results as configured in 'args'.
+    """
     # TODO(RN) minor refactor: its not necessary to do the entire val_transforms 
     #          it would be enough to crop the image, but we need the to_img function below
     #          for the gradients.
-    if args.visualization == "single+interpolation":
-        fig = plt.figure(constrained_layout=True)
-        grid_spec = GridSpec(2, args.n_steps, figure=fig)
-        interpolation_axes = [fig.add_subplot(grid_spec[1, i]) for i in range(args.n_steps)]
-        axis = fig.add_subplot(grid_spec[0, :])
-    elif axis is None:
-        axis = plt.gca() 
+    if args.plot_type == "single":
+        # We only plot one image and save it afterwards
+        attribution_axis = plt.gca()
+        skip_saving = False
 
-    axis.axis('off')
-    axis.set_title(f"{classifier.dataset.class_names[label]} ({prob*100:.0f}%)" )
+    elif args.plot_type == "grid":
+        # This is a batched version of "single"
+        # Create a new figure for the first image and when the grid got full
+        if image_idx % args.grid_size ** 2 == 0:
+            _, g_plot_axes = plt.subplots(args.grid_size, args.grid_size)
+        
+        # Find the row and column for the current image
+        attribution_axis = g_plot_axes[image_idx // args.grid_size, image_idx % args.grid_size]
+        
+        skip_saving = False if (image_idx+1) % args.grid_size**2 == 0 else True
+    
+    elif args.plot_type == "single+interpolation":
+        # Create two-row figure of the attribution overlay and the interpolation
+        fig = plt.figure(constrained_layout=True)
+        n_images = len(interpolation_images)
+        grid_spec = GridSpec(2, n_images, figure=fig)
+        attribution_axis = fig.add_subplot(grid_spec[0, :])
+        interpolation_axes = [fig.add_subplot(grid_spec[1, i]) for i in range(n_images)]
+        
+        skip_saving = False
+    else:
+        print(f"ERROR: unknown visualization type {args.plot_type}!")
+        exit(-1)
+
+    attribution_axis.axis('off')
+    attribution_axis.set_title(f"{classifier.dataset.class_names[label]} ({prob*100:.0f}%)" )
 
     original_image = interpolation_images[-1]
-    original_image = classifier.dataset.val_transforms_img(original_image)
-        
-    attributions = sum_grads.squeeze(0).sum(0, keepdim=True).permute(1,2,0)
+    # Crop the original image to match the heatmap
+    image_tensor = classifier.dataset.val_transforms_img(original_image)
+    # Revert the normalization and put channel axis last
+    mean = torch.Tensor(classifier.dataset.mean)
+    STD = torch.Tensor(classifier.dataset.STD)
+    image_tensor = image_tensor.permute(1,2,0) * STD + mean
+    
+    # Sum along the channel axis
+    attributions = sum_grads.sum(-1, keepdim=True)
+    # Normalize to so that the biggest absolute value is 1
     attributions = attributions / attributions.abs().max()
     
-    plot_IG_attributions(axis, original_image, attributions)
+    plot_IG_attributions(attribution_axis, image_tensor, attributions)
 
-    if args.visualization == "single+interpolation":
+    if args.plot_type == "single+interpolation":
         utils.plot_image_grid(interpolation_images, axes=interpolation_axes)
 
     if skip_saving:
         return
 
-    elif args.show_plot:
+    if args.show_plot:
         plt.show()
     else:
         plt.savefig(join(args.output_dir, file), bbox_inches="tight")
 
-def plot_IG_attributions(axis, original_image, attributions):
-    mean = torch.Tensor(classifier.dataset.mean)
-    STD = torch.Tensor(classifier.dataset.STD)
-    to_img = lambda x : np.uint8((x.permute(1,2,0) * STD + mean) * 255)
-
-    if args.colors == "black-white":
-        unnormalized_image = to_img(original_image)
-        ig_results = unnormalized_image * np.max(attributions, 0)
+def plot_IG_attributions(axis: Axes, original_image: torch.Tensor, attributions: torch.Tensor):
+    """
+    Plot the IG heatmap on the given axis. The exact visualization depends on 'args'.
+    """
+    if args.heatmap_type == "product":
+        # Plot abs(gradients) * image        
+        ig_results = original_image * attributions.abs()
         axis.imshow(ig_results)
     
-    elif args.colors == "green-red":
-        greyscale_image = PIL.Image.fromarray(to_img(original_image)).convert("LA")
-
+    elif args.heatmap_type == "green-red":
+        # Plot negative attributions in red and positive attributions in green
         attributions = torch.Tensor([
             # Red channel for negative attributions
             np.where(attributions < 0, -attributions, 0), 
@@ -335,15 +391,17 @@ def plot_IG_attributions(axis, original_image, attributions):
             # Blue channel is unused
             np.zeros_like(attributions)
         ])
-
         attributions = attributions.squeeze(-1).permute(1,2,0)
+        
+        # Overlaid on the greyscale image
+        to_img = lambda img : np.uint8(original_image * 255)
+        greyscale_image = PIL.Image.fromarray(to_img(original_image)).convert("LA")
 
         axis.imshow(greyscale_image)
         axis.imshow(attributions, alpha=0.5)
         
-    
     else:
-        print(f"ERROR: unexpected visualization type: {args.visualization}")
+        print(f"ERROR: unexpected figure type: {args.plot_type}")
         exit(-1)
 
 if __name__ == "__main__":
@@ -361,5 +419,6 @@ if __name__ == "__main__":
     if "latent" in args.interpolation:
         generative_model = ImageGenerator()
     
+    g_plot_axes = None
     main()
     
