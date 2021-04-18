@@ -1,8 +1,9 @@
 import cv2
+from PIL.Image import blend
 from argparse import Namespace
 from os.path import join
 import os
-from typing import List
+from typing import List, Union
 from matplotlib import pyplot as plt
 from matplotlib.gridspec import GridSpec
 import numpy as np
@@ -15,6 +16,7 @@ import torch
 from tqdm import tqdm
 from scripts import utils
 from pprint import pprint
+from scipy.special import softmax
 
 def parse_args() -> Namespace:
     """
@@ -41,7 +43,7 @@ def parse_args() -> Namespace:
                         help="The target label's index for IG. By default it is" + \
                              "the top-1 prediction of the classifier on the original image.")
 
-    parser.add_argument("--dilation", type=int, default=0,
+    parser.add_argument("--dilation", type=int, default=7,
                         help="If given, and the baseline is inpainted, then the" + \
                              " binary mask of the instance segmentation network" + \
                              " will be diluted by this number of iterations.")
@@ -64,10 +66,18 @@ def main():
     progress_bar = tqdm(sorted(os.listdir(args.data_dir)))
     for i, file in enumerate(progress_bar):
         progress_bar.set_description(file)
-        image = open_image(file)
-        baseline = get_baseline(file)
         interpolation_images = create_interpolation(baseline, image)
         target_label = get_target_label(interpolation_images)
+
+        image = open_pil_image(file)
+        baseline = get_baseline(image)
+
+
+        if args.target_label is None:
+            target_label, prob = get_classifier_prediction(file)
+        else:
+            target_label = args.target_label
+            prob = None
 
         attributions = integrated_gradients(
             classifier, interpolation_images, target_label
@@ -204,7 +214,7 @@ def integrated_gradients(
 
     return diff * sum_gradients
 
-def plot_results(interpolation_images, sum_grads, label, file, axis=None, skip_saving=False):
+def plot_results(interpolation_images, sum_grads, label, prob, file, axis=None, skip_saving=False):
     # TODO(RN) minor refactor: its not necessary to do the entire val_transforms 
     #          it would be enough to crop the image, but we need the to_img function below
     #          for the gradients.
@@ -217,7 +227,7 @@ def plot_results(interpolation_images, sum_grads, label, file, axis=None, skip_s
         axis = plt.gca() 
 
     axis.axis('off')
-    axis.set_title(classifier.dataset.class_names[label])
+    axis.set_title(f"{classifier.dataset.class_names[label]} ({prob*100:.0f}%)" )
 
     original_image = interpolation_images[-1]
     original_image = classifier.dataset.val_transforms_img(original_image)
