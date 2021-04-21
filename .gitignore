@@ -6,3 +6,5 @@ utils/deepfill_checkpoint
 utils/dall_e_checkpoint
 utils/SAScene_checkpoint
 src/scripts/outputs
+src/models/backends/clevr-iep/models
+src/scripts/pretrained
