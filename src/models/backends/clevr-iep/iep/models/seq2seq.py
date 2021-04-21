@@ -10,8 +10,7 @@ import torch
 import torch.cuda
 import torch.nn as nn
 import torch.nn.functional as F
-from torch.autograd import Variable
-
+import numpy as np
 from iep.embedding import expand_embedding_vocab
 
 class Seq2Seq(nn.Module):
@@ -73,14 +72,14 @@ class Seq2Seq(nn.Module):
           break
     idx = idx.type_as(x.data)
     x[x.data == self.NULL] = replace
-    return x, Variable(idx)
+    return x, idx
 
   def encoder(self, x):
     V_in, V_out, D, H, L, N, T_in, T_out = self.get_dims(x=x)
     x, idx = self.before_rnn(x)
     embed = self.encoder_embed(x)
-    h0 = Variable(torch.zeros(L, N, H).type_as(embed.data))
-    c0 = Variable(torch.zeros(L, N, H).type_as(embed.data))
+    h0 = torch.zeros(L, N, H).type_as(embed.data)
+    c0 = torch.zeros(L, N, H).type_as(embed.data)
 
     out, _ = self.encoder_rnn(embed, (h0, c0))
 
@@ -97,9 +96,9 @@ class Seq2Seq(nn.Module):
     encoded_repeat = encoded.view(N, 1, H).expand(N, T_out, H)
     rnn_input = torch.cat([encoded_repeat, y_embed], 2)
     if h0 is None:
-      h0 = Variable(torch.zeros(L, N, H).type_as(encoded.data))
+      h0 = torch.zeros(L, N, H).type_as(encoded.data)
     if c0 is None:
-      c0 = Variable(torch.zeros(L, N, H).type_as(encoded.data))
+      c0 = torch.zeros(L, N, H).type_as(encoded.data)
     rnn_output, (ht, ct) = self.decoder_rnn(rnn_input, (h0, c0))
 
     rnn_output_2d = rnn_output.contiguous().view(N * T_out, H)
@@ -123,10 +122,10 @@ class Seq2Seq(nn.Module):
     self.multinomial_outputs = None
     V_in, V_out, D, H, L, N, T_in, T_out = self.get_dims(y=y)
     mask = y.data != self.NULL
-    y_mask = Variable(torch.Tensor(N, T_out).fill_(0).type_as(mask))
+    y_mask = torch.Tensor(N, T_out).fill_(0).type_as(mask)
     y_mask[:, 1:] = mask[:, 1:]
     y_masked = y[y_mask]
-    out_mask = Variable(torch.Tensor(N, T_out).fill_(0).type_as(mask))
+    out_mask = torch.Tensor(N, T_out).fill_(0).type_as(mask)
     out_mask[:, :-1] = mask[:, 1:]
     out_mask = out_mask.view(N, T_out, 1).expand(N, T_out, V_out)
     out_masked = output_logprobs[out_mask].view(-1, V_out)
@@ -148,7 +147,7 @@ class Seq2Seq(nn.Module):
     y = [self.START]
     h0, c0 = None, None
     while True:
-      cur_y = Variable(torch.LongTensor([y[-1]]).type_as(x.data).view(1, 1))
+      cur_y = torch.LongTensor([y[-1]]).type_as(x.data).view(1, 1)
       logprobs, h0, c0 = self.decoder(encoded, cur_y, h0=h0, c0=c0)
       _, next_y = logprobs.data.max(2)
       y.append(next_y[0, 0, 0])
@@ -161,7 +160,7 @@ class Seq2Seq(nn.Module):
     encoded = self.encoder(x)
     y = torch.LongTensor(N, T).fill_(self.NULL)
     done = torch.ByteTensor(N).fill_(0)
-    cur_input = Variable(x.data.new(N, 1).fill_(self.START))
+    cur_input = x.data.new(N, 1).fill_(self.START)
     h, c = None, None
     self.multinomial_outputs = []
     self.multinomial_probs = []
@@ -169,21 +168,21 @@ class Seq2Seq(nn.Module):
       # logprobs is N x 1 x V
       logprobs, h, c = self.decoder(encoded, cur_input, h0=h, c0=c)
       logprobs = logprobs / temperature
-      probs = F.softmax(logprobs.view(N, -1)) # Now N x V
+      probs = F.softmax(logprobs.view(N, -1), dim=1) # Now N x V
       if argmax:
-        _, cur_output = probs.max(1)
+        _, cur_output = probs.max(1, keepdim=True)
       else:
         cur_output = probs.multinomial() # Now N x 1
       self.multinomial_outputs.append(cur_output)
       self.multinomial_probs.append(probs)
       cur_output_data = cur_output.data.cpu()
-      not_done = logical_not(done)
-      y[:, t][not_done] = cur_output_data[not_done]
+      not_done = np.where(done.data.cpu().numpy() == 0)
+      y[not_done, t] = cur_output_data[not_done]
       done = logical_or(done, cur_output_data.cpu() == self.END)
       cur_input = cur_output
       if done.sum() == N:
         break
-    return Variable(y.type_as(x.data))
+    return y.type_as(x.data)
 
   def reinforce_backward(self, reward, output_mask=None):
     """
@@ -200,7 +199,7 @@ class Seq2Seq(nn.Module):
 
     if output_mask is not None:
       for t, probs in enumerate(self.multinomial_probs):
-        mask = Variable(output_mask[:, t])
+        mask = output_mask[:, t]
         probs.register_hook(gen_hook(mask))
 
     for sampled_output in self.multinomial_outputs:

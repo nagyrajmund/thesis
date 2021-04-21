@@ -3,7 +3,6 @@
 #
 # This source code is licensed under the license found in the
 # LICENSE file in the root directory of this source tree.
-
 import argparse
 import json
 import random
@@ -12,18 +11,17 @@ import sys
 import os
 
 import torch
-from torch.autograd import Variable
 import torch.nn.functional as F
 import torchvision
 import numpy as np
 import h5py
-from scipy.misc import imread, imresize
+import PIL
+from skimage.io import imread
 
 import iep.utils as utils
 import iep.programs
 from iep.data import ClevrDataset, ClevrDataLoader
 from iep.preprocess import tokenize, encode
-
 
 parser = argparse.ArgumentParser()
 parser.add_argument('--program_generator', default=None)
@@ -122,15 +120,15 @@ def run_single_example(args, model):
 
   # Load and preprocess the image
   img_size = (args.image_height, args.image_width)
-  img = imread(args.image, mode='RGB')
-  img = imresize(img, img_size, interp='bicubic')
+  img = imread(args.image, pilmode="RGB")
+  img = np.array(PIL.Image.fromarray(img).resize(img_size, resample=PIL.Image.BICUBIC))
   img = img.transpose(2, 0, 1)[None]
   mean = np.array([0.485, 0.456, 0.406]).reshape(1, 3, 1, 1)
   std = np.array([0.229, 0.224, 0.224]).reshape(1, 3, 1, 1)
   img = (img.astype(np.float32) / 255.0 - mean) / std
 
   # Use CNN to extract features for the image
-  img_var = torch.FloatTensor(img, requires_grad = False).type(dtype)
+  img_var = torch.FloatTensor(img).type(dtype)
   feats_var = cnn(img_var)
 
   # Tokenize the question
@@ -143,7 +141,7 @@ def run_single_example(args, model):
                        allow_unk=True)
   question_encoded = torch.LongTensor(question_encoded).view(1, -1)
   question_encoded = question_encoded.type(dtype).long()
-  question_var = Variable(question_encoded, volatile=True)
+  question_var = question_encoded
 
   # Run the model
   print('Running the model\n')
@@ -164,7 +162,7 @@ def run_single_example(args, model):
 
   # Print results
   _, predicted_answer_idx = scores.data.cpu()[0].max(dim=0)
-  predicted_answer = vocab['answer_idx_to_token'][predicted_answer_idx[0]]
+  predicted_answer = vocab['answer_idx_to_token'][predicted_answer_idx.item()]
 
   print('Question: "%s"' % args.question)
   print('Predicted answer: ', predicted_answer)
@@ -175,7 +173,7 @@ def run_single_example(args, model):
     program = predicted_program.data.cpu()[0]
     num_inputs = 1
     for fn_idx in program:
-      fn_str = vocab['program_idx_to_token'][fn_idx]
+      fn_str = vocab['program_idx_to_token'][fn_idx.item()]
       num_inputs += iep.programs.get_num_inputs(fn_str) - 1
       print(fn_str)
       if num_inputs == 0:
@@ -223,8 +221,8 @@ def run_baseline_batch(args, model, loader, dtype):
   for batch in loader:
     questions, images, feats, answers, programs, program_lists = batch
 
-    questions_var = Variable(questions.type(dtype).long(), volatile=True)
-    feats_var = Variable(feats.type(dtype), volatile=True)
+    questions_var = questions.type(dtype).long()
+    feats_var = feats.type(dtype)
     scores = model(questions_var, feats_var)
     probs = F.softmax(scores)
 
@@ -260,8 +258,8 @@ def run_our_model_batch(args, program_generator, execution_engine, loader, dtype
   for batch in loader:
     questions, images, feats, answers, programs, program_lists = batch
 
-    questions_var = Variable(questions.type(dtype).long(), volatile=True)
-    feats_var = Variable(feats.type(dtype), volatile=True)
+    questions_var = questions.type(dtype).long()
+    feats_var = feats.type(dtype)
 
     programs_pred = program_generator.reinforce_sample(
                         questions_var,
