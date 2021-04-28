@@ -26,10 +26,11 @@ class SemanticSegmentationModel:
     Args:
         #TODO(RN) documentation
     """
-    def __init__(self, config_file: str = "../../utils/upernet-50.yml"):
+    def __init__(self, config_file: str = "../../utils/upernet-50.yml", device: str = "cpu"):
         cfg.merge_from_file(config_file)
         
-        self.model = self._construct_model()
+        self.device = device
+        self.model = self._construct_model().to(self.device)
         
         self.normalize = transforms.Normalize(
             mean=[0.485, 0.456, 0.406],
@@ -55,7 +56,7 @@ class SemanticSegmentationModel:
 
     def compute_top3_segmentation_masks(self, image: PIL.Image.Image):
         # TODO(RN) support batch of images?
-        image = self._img_transform(image).unsqueeze(0)
+        image = self._img_transform(image).unsqueeze(0).to(self.device)
         feed_dict = {"img_data": image}
         probs = self.model(feed_dict, segSize=(256, 256))
         probs = probs.squeeze(0)
@@ -70,6 +71,7 @@ class SemanticSegmentationModel:
         img = self.normalize(torch.from_numpy(img.copy())) #TODO(RN) Why copy?
         
         return img
+
 class InstanceSegmentationModel:
     """
     A wrapper around pretrained instance segmentation models from the Detectron2 model zoo.
@@ -150,7 +152,7 @@ def binary_masks_to_opencv_images(masks):
     """
     Convert a sequence of binary masks into openCV images.
     """
-    masks = masks.numpy()
+    masks = masks.cpu().numpy()
     masks = [ PIL.Image.fromarray(mask).convert('RGB') for mask in masks ]
     masks = np.stack(masks)
     

@@ -43,7 +43,15 @@ class ImageGenerator:
             
         r = self.target_image_size / s
         s = (round(r * image.size[1]), round(r * image.size[0]))
-        image = TF.resize(image, s, interpolation=TF.InterpolationMode.LANCZOS)
+        
+        try:
+            # We prefer to use torchvision's InterpolationMode enum...
+            interpolation_mode = TF.InterpolationMode.LANCZOS
+        except AttributeError:
+            # ...but we fallback to PIL if the torchvision version is too old
+            interpolation_mode = PIL.Image.LANCZOS
+
+        image = TF.resize(image, s, interpolation=interpolation_mode)
         image = TF.center_crop(image, output_size=2 * [self.target_image_size])
         image = torch.unsqueeze(T.ToTensor()(image), 0)
         
@@ -51,7 +59,7 @@ class ImageGenerator:
 
     def encode(self, image: PIL.Image) -> torch.tensor:
         """Return the latent code of the given image."""
-        x = self.preprocess(image)
+        x = self.preprocess(image).to(self.device)
         z_logits = self.encoder(x)
         z = torch.argmax(z_logits, axis=1)
         z = F.one_hot(z, num_classes=self.encoder.vocab_size).permute(0, 3, 1, 2).float()

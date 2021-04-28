@@ -57,6 +57,9 @@ def parse_args() -> Namespace:
                              "binary mask of the instance segmentation network " + \
                              "will be diluted by this number of iterations.")
 
+    parser.add_argument("--device", type=str, default="cpu",
+                        help="The name of the device to use (e.g. 'cpu' or 'cuda').")
+
     args = parser.parse_args()
     
     print("-"*80)
@@ -95,9 +98,6 @@ def main():
         attributions = integrated_gradients(classifier, interpolation_images, target_label)
         
         plot_results(idx, interpolation_images, attributions, target_label, prob, file)
-        
-
-        
 
 # -----------------------------------------------------------------------------------
 def open_pil_image(filename: str) -> PIL.Image.Image:
@@ -284,10 +284,9 @@ def integrated_gradients(
     n_steps = len(interpolation_images)
     sum_gradients = torch.zeros(3, 224, 224)
     preprocess = lambda img : classifier.dataset.val_transforms_img(img)
-
     for img in tqdm(interpolation_images, desc="Calculating integrated gradients", leave=False):
         semantic_mask, semantic_scores = classifier.get_segmentation(img)
-        image = preprocess(img)
+        image = preprocess(img).to(args.device)
 
         pred = classifier.predict_from_tensors(
             image, semantic_mask, semantic_scores, track_image_gradients=True)
@@ -296,7 +295,7 @@ def integrated_gradients(
 
         classifier.model.zero_grad()
         pred[label].backward()
-        gradient = image.grad.detach().squeeze()
+        gradient = image.grad.detach().squeeze().cpu()
 
         sum_gradients += gradient
 
@@ -409,15 +408,16 @@ if __name__ == "__main__":
     utils.create_output_dir(args)
     
     classifier = SceneRecognitionModel(
-        segmentation_model = SemanticSegmentationModel()
+        segmentation_model = SemanticSegmentationModel(device=args.device),
+        device = args.device
     )
 
     if args.baseline == "inpainted" or args.object_centric:
-        instance_segmentation_model = InstanceSegmentationModel()
+        instance_segmentation_model = InstanceSegmentationModel(device=args.device)
         inpainting_model = InpaintingModel()
 
     if "latent" in args.interpolation:
-        generative_model = ImageGenerator()
+        generative_model = ImageGenerator(device=args.device)
     
     g_plot_axes = None
     main()

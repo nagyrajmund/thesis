@@ -7,11 +7,11 @@ if __name__ == "__main__":
     n_interpolation_steps = 10
 
     model = ImageGenerator(model_path = "../../utils/dall_e_checkpoint")
-    image_a = PIL.Image.open("../../data/places_small/Places365_val_00000173.jpg")
-    image_b = PIL.Image.open("../../data/places_small/Places365_val_00000199.jpg")
+    image_a = PIL.Image.open("../../data/places365/validation_small/Places365_val_00000515.jpg")
+    image_b = PIL.Image.open("../../data/places365/validation_small/Places365_val_00000542.jpg")
 
     interpolation = model.interpolate(
-        image_a, image_b, target_image_size, n_interpolation_steps)
+        image_a, image_b, n_interpolation_steps)
 
     _, axes = plt.subplots(1, n_interpolation_steps, gridspec_kw = {'wspace': 0, 'hspace': 0})
 

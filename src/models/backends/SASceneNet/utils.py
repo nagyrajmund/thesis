@@ -275,7 +275,7 @@ def make_one_hot(labels, semantic_scores, C=151, device='cpu'):
         labels = torch.unsqueeze(labels, 1)
 
     # Semantic Labels
-    one_hot = torch.FloatTensor(labels.size(0), C + 1, labels.size(2), labels.size(3)).zero_()
+    one_hot = torch.FloatTensor(labels.size(0), C + 1, labels.size(2), labels.size(3)).zero_().to(device)
 
     # target = one_hot.scatter_(1, labels, semantic_scores.float())
     # target = one_hot.scatter_(1, labels, 1)

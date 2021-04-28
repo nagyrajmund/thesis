@@ -49,7 +49,7 @@ class PlacesDatasetMetadata:
             self.val_transforms_sem_mask = transforms.Compose([
                 transforms.TenCrop(self.output_size),
                 transforms.Lambda(lambda crops: torch.stack(
-                    [torch.from_numpy(np.asarray(crop) + 1).long().permute(2, 0, 1) for crop in crops])),
+                    [(crop + 1).long().permute(2, 0, 1) for crop in crops])),
             ])
 
             self.val_transforms_sem_scores = transforms.Compose([
@@ -67,7 +67,7 @@ class PlacesDatasetMetadata:
             self.val_transforms_sem_mask = transforms.Compose([
                 transforms.CenterCrop(self.output_size),
                 transforms.Lambda(
-                    lambda sem: torch.from_numpy(np.asarray(sem) + 1).long())
+                    lambda sem: (sem + 1).long())
             ])
 
             self.val_transforms_sem_scores = transforms.Compose([
@@ -101,6 +101,7 @@ class SceneRecognitionModel:
     ):
     #TODO(RN) documentation
         self.do_ten_crops = do_ten_crops
+        self.device = device
         self.dataset = PlacesDatasetMetadata(do_ten_crops)
         self.segmentation_model = segmentation_model
         self.model = SASceneNet(
@@ -114,6 +115,9 @@ class SceneRecognitionModel:
         self.model.load_state_dict(checkpoint['state_dict'])
         self.model.to(device)
         self.model.eval()
+
+        self.segmentation_model.model.to(device)
+        self.segmentation_model.model.eval()
 
     def predict_from_tensors(self,
         image: torch.Tensor,
@@ -143,9 +147,9 @@ class SceneRecognitionModel:
             fuse_first_two_dims(image)
             fuse_first_two_dims(semantic_mask)
             fuse_first_two_dims(semantic_scores)
-            
+        
         # Create tensor of probabilities from semantic_mask
-        semanticTensor = utils.make_one_hot(semantic_mask, semantic_scores, C=self.dataset.n_semantic_classes)
+        semanticTensor = utils.make_one_hot(semantic_mask, semantic_scores, C=self.dataset.n_semantic_classes, device=self.device)
                 
         if track_image_gradients:
             image.requires_grad_()
@@ -169,7 +173,7 @@ class SceneRecognitionModel:
             image = image.convert("RGB")
         
         semantic_mask, semantic_scores = self.get_segmentation(image)
-        image = self.dataset.val_transforms_img(image)
+        image = self.dataset.val_transforms_img(image).to(self.device)
 
         return self.predict_from_tensors(image, semantic_mask, semantic_scores, track_image_gradients)
         

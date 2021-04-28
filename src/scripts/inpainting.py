@@ -10,7 +10,7 @@ if __name__ == "__main__":
     if len(sys.argv) >= 2:
         image_path = sys.argv[1]
     else:
-        image_path = "../../data/places_small/Places365_val_00000177.jpg"
+        image_path = "../../data/places365/validation_small/Places365_val_00000173.jpg"
 
     if len(sys.argv) >= 3:
         mask_path = sys.argv[2]
