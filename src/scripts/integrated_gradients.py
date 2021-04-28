@@ -24,6 +24,7 @@ def parse_args() -> Namespace:
     """
     Return the parsed command-line arguments for this script.
     """
+    # Add with default arguments such as --show_plot and --output_dir
     parser = utils.create_default_argparser(output_dir = "outputs/integrated_gradients")
     
     parser.add_argument("--object_centric", action="store_true",
@@ -35,7 +36,7 @@ def parse_args() -> Namespace:
 
     utils.add_choices("--baseline", choices=["black", "inpainted", "random"], parser=parser)
 
-    utils.add_choices("--heatmap_type", choices=["green-red", "product"], parser=parser)
+    utils.add_choices("--heatmap_type", choices=["green-red", "product", "heatmap"], parser=parser)
     
     utils.add_choices("--plot_type", choices=["single", "single+interpolation", "grid"], parser=parser)
 
@@ -62,10 +63,6 @@ def parse_args() -> Namespace:
 
     args = parser.parse_args()
     
-    print("-"*80)
-    pprint(vars(args))
-    print("-"*80)
-
     return args
 
 # -----------------------------------------------------------------------------------
@@ -115,7 +112,7 @@ def get_classifier_prediction(image: PIL.Image.Image) -> Tuple[int, float]:
     """
     preds = classifier.predict(image).squeeze()
     label = preds.argmax().item()
-    prob = softmax(preds.detach().numpy()).max().item()
+    prob = softmax(preds.detach().cpu().numpy()).max().item()
 
     return label, prob
 
@@ -231,8 +228,7 @@ def create_interpolation_object_centric(
                            for a in np.linspace(0, 1, num=args.n_steps)]
     
     interpolations = [PIL.Image.fromarray(np.uint8(image)) for image in interpolations]
-    utils.plot_image_grid(interpolations)
-    plt.show()
+
     return interpolations
 
 def create_interpolation(
@@ -287,7 +283,8 @@ def integrated_gradients(
     for img in tqdm(interpolation_images, desc="Calculating integrated gradients", leave=False):
         semantic_mask, semantic_scores = classifier.get_segmentation(img)
         image = preprocess(img).to(args.device)
-
+        semantic_mask = semantic_mask.to(args.device)
+        semantic_scores = semantic_scores.to(args.device)
         pred = classifier.predict_from_tensors(
             image, semantic_mask, semantic_scores, track_image_gradients=True)
         
@@ -319,11 +316,15 @@ def plot_results(image_idx, interpolation_images, sum_grads, label, prob, file):
         skip_saving = False
 
     elif args.plot_type == "grid":
+        global g_plot_axes
         # This is a batched version of "single"
         # Create a new figure for the first image and when the grid got full
         if image_idx % args.grid_size ** 2 == 0:
-            _, g_plot_axes = plt.subplots(args.grid_size, args.grid_size)
-        
+            _, g_plot_axes = plt.subplots(
+                args.grid_size, args.grid_size, 
+                constrained_layout=True, 
+                figsize=(args.grid_size**2, args.grid_size**2))
+            
         # Find the row and column for the current image
         attribution_axis = g_plot_axes[image_idx // args.grid_size, image_idx % args.grid_size]
         
@@ -369,7 +370,7 @@ def plot_results(image_idx, interpolation_images, sum_grads, label, prob, file):
     if args.show_plot:
         plt.show()
     else:
-        plt.savefig(join(args.output_dir, file), bbox_inches="tight")
+        plt.savefig(join(args.output_dir, file), bbox_inches="tight", dpi=100)
 
 def plot_IG_attributions(axis: Axes, original_image: torch.Tensor, attributions: torch.Tensor):
     """
@@ -399,6 +400,9 @@ def plot_IG_attributions(axis: Axes, original_image: torch.Tensor, attributions:
         axis.imshow(greyscale_image)
         axis.imshow(attributions, alpha=0.5)
         
+    elif args.heatmap_type == "heatmap":
+        raise NotImplementedError("'heatmap' visualization of IG is not implemented!")
+
     else:
         print(f"ERROR: unexpected figure type: {args.plot_type}")
         exit(-1)
@@ -406,7 +410,7 @@ def plot_IG_attributions(axis: Axes, original_image: torch.Tensor, attributions:
 if __name__ == "__main__":
     args = parse_args()
     utils.create_output_dir(args)
-    
+    utils.save_args_to_output_dir(args)
     classifier = SceneRecognitionModel(
         segmentation_model = SemanticSegmentationModel(device=args.device),
         device = args.device
@@ -418,7 +422,6 @@ if __name__ == "__main__":
 
     if "latent" in args.interpolation:
         generative_model = ImageGenerator(device=args.device)
-    
-    g_plot_axes = None
+
     main()
     

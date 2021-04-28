@@ -26,13 +26,16 @@ def create_default_argparser(**override_defaults_kwargs) -> ArgumentParser:
     parser = ArgumentParser(add_help=True)
     
     parser.add_argument("--data_dir", type=str, default="../../data/places365/validation_small",
-                        help="The folder where the input images will be read from")
+                        help="The folder where the input images will be read from.")
 
     parser.add_argument("--output_dir", type=str, default=None,
                         help="The folder where the script's outputs will be saved if 'show_plot' is False.")
 
+    parser.add_argument("--clear_output_dir", action="store_true",
+                        help="If given, then the output dir is cleared at the beginning without any warnings.")
+
     parser.add_argument("--show_plot", action="store_true",
-                        help="If set,the script's results are shown on the screen instead of saving them to 'output_dir'")
+                        help="If set,the script's results are shown on the screen instead of saving them to 'output_dir'.")
 
     parser.set_defaults(**override_defaults_kwargs)
 
@@ -51,7 +54,9 @@ def save_args_to_output_dir(args: Namespace, print_args: bool = True):
     Save the given command-line arguments to their 'output_dir' folder.
     """
     if print_args:
-        pprint(args.__dict__, indent=4, compact=False)
+        print('-'*80)
+        pprint(vars(args), indent=4, compact=False)
+        print('-'*80)
 
     with open(join(args.output_dir, "cmd_args.json"), "w") as file:
         json.dump(args.__dict__, file, indent=2)
@@ -63,19 +68,21 @@ def create_output_dir(args: Namespace):
     # If show_plot is True, no results will be saved
     if args.show_plot:
         return
-    
+       
     if args.output_dir is None:
         raise ArgumentError(args.output_dir, "Please set the result folder with the --output_dir option!")
 
     if os.path.exists(args.output_dir):
-        cmd = input(f"\nWARNING: output dir '{args.output_dir}' already exists!" + \
-                     "\nType 'ok' to delete it and anything else to quit: ")
-        if cmd != 'ok':
-            exit()
-        else:
-            print()
-            shutil.rmtree(args.output_dir)
-    
+        
+        if not args.clear_output_dir:
+            cmd = input(f"\nWARNING: output dir '{args.output_dir}' already exists!" + \
+                        "\nType 'ok' to delete it and anything else to quit: ")
+            if cmd != 'ok':
+                exit()
+        
+        shutil.rmtree(args.output_dir)
+
+    print()
     os.makedirs(args.output_dir)
 
 def infer_detectron2_class_names(config_file: str) -> List[str]:
