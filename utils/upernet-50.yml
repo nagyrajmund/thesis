@@ -11,6 +11,8 @@ MODEL:
   arch_encoder: "resnet50"
   arch_decoder: "upernet"
   fc_dim: 2048
+  weights_encoder: "../../utils/upernet_checkpoint/encoder_epoch_30.pth"
+  weights_decoder: "../../utils/upernet_checkpoint/decoder_epoch_30.pth"
 
 TRAIN:
   batch_size_per_gpu: 2

@@ -31,6 +31,7 @@ class SemanticSegmentationModel:
         
         self.device = device
         self.model = self._construct_model().to(self.device)
+        self.model.eval()
         
         self.normalize = transforms.Normalize(
             mean=[0.485, 0.456, 0.406],
@@ -38,11 +39,19 @@ class SemanticSegmentationModel:
         )
 
     def _construct_model(self):
+        if len(cfg.MODEL.weights_encoder) == 0:
+            raise ValueError("The encoder weights are not configured for the (UPerNet) semantic segmentation model.\n" + \
+                             "Please set the 'model.weights_encoder' to the path of the saved checkpoint!")
+        
+        if len(cfg.MODEL.weights_decoder) == 0:
+            raise ValueError("The decoder weights are not configured for the (UPerNet) semantic segmentation model.\n" + \
+                             "Please set the 'model.weights_decoder' to the path of the saved checkpoint!")
+        
         net_encoder = ModelBuilder.build_encoder(
             arch    = cfg.MODEL.arch_encoder.lower(),
             fc_dim  = cfg.MODEL.fc_dim,
             weights = cfg.MODEL.weights_encoder
-        )
+        ).eval()
 
         net_decoder = ModelBuilder.build_decoder(
             arch        = cfg.MODEL.arch_decoder.lower(),
@@ -50,7 +59,7 @@ class SemanticSegmentationModel:
             num_class   = cfg.DATASET.num_class,
             weights     = cfg.MODEL.weights_decoder,
             use_softmax = True
-        )
+        ).eval()
 
         return SegmentationModule(net_encoder, net_decoder, crit=None)
 

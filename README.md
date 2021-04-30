@@ -3,6 +3,13 @@ Ongoing thesis project on improving integrated gradients with latent interpolati
 
 ***
 # TODO
+- Add tests to ensure determinism
+- add rgb branch only
+- idea: focuses on lines, numbers -> use dataset of lines only etc.
+- fix the issue with cropping
+- 
+- Add a way to load the labels for the validation_small dataset
+- Implement classifier predict() without providing semantic masks
 - Implement IG for the places classifier
 - Measure the difference between the explanations for the original image and the baseline
 - Implement the insertion/deletion metric + visualizaiton
@@ -28,4 +35,13 @@ Ongoing thesis project on improving integrated gradients with latent interpolati
   wget https://cdn.openai.com/dall-e/encoder.pkl -P utils/dall_e_checkpoint/
   wget https://cdn.openai.com/dall-e/decoder.pkl -P utils/dall_e_checkpoint/
   ```
+- Download the classifier:
+  ```
+  wget http://www-vpu.eps.uam.es/publications/SemanticAwareSceneRecognition/Model_Zoo/Places_365/SAScene_ResNet18_Places.pth.tar -P utils/SASceneNet_checkpoint/SAScene_ResNet18_Places.pth.tar
+  ```
 
+- Download the semantic segmentation network:
+  ```
+  wget http://sceneparsing.csail.mit.edu/model/pytorch/ade20k-resnet50-upernet/decoder_epoch_30.pth -P utils/upernet_checkpoint/decoder_epoch_30.pth
+  wget http://sceneparsing.csail.mit.edu/model/pytorch/ade20k-resnet50-upernet/encoder_epoch_30.pth -P utils/upernet_checkpoint/encoder_epoch_30.pth
+  ```
