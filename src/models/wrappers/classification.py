@@ -62,7 +62,6 @@ class PlacesDatasetMetadata:
                 transforms.ToTensor(),
                 transforms.Normalize(self.mean, self.STD)
             ])
-
         
             self.val_transforms_sem_mask = transforms.Compose([
                 transforms.CenterCrop(self.output_size),
@@ -103,6 +102,7 @@ class SceneRecognitionModel:
         self.do_ten_crops = do_ten_crops
         self.device = device
         self.dataset = PlacesDatasetMetadata(do_ten_crops)
+        self.preprocess_img = self.dataset.val_transforms_img
         self.segmentation_model = segmentation_model
         self.model = SASceneNet(
             arch = "ResNet-18",
@@ -167,7 +167,8 @@ class SceneRecognitionModel:
 
     def predict(self,
         image : PIL.Image.Image,
-        track_image_gradients: bool = False
+        track_image_gradients: bool = False,
+        
     ) -> torch.Tensor:
         if image.mode is not "RGB":
             image = image.convert("RGB")
