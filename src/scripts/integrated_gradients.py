@@ -134,6 +134,8 @@ class IntegratedGradients:
         parser.add_argument("--device", type=str, default="cpu",
                             help="The name of the device to use (e.g. 'cpu' or 'cuda').")
 
+        parser.add_argument("--heatmap_top_pct", type=float, default=100,
+                            help="This number sets the treshold for showing only the top n percent attributions.")
         return parser
 
     def create_interpolation(self, 
@@ -273,8 +275,15 @@ class IntegratedGradients:
         Plot the IG heatmap on the given axis. The exact visualization depends on 'args'.
         """
         if self.args.heatmap_type == "product":
-            # Plot abs(gradients) * image        
-            ig_results = original_image * attributions.abs()
+            # This visualization is essentially abs(gradients) * image
+            multipliers = attributions.abs()
+            # Threshold the heatmap values using 'self.args.heatmap_top_pct'
+            raise NotImplementedError("this is buggy below, use --heatmap_type heatmap")
+            threshold = np.percentile(multipliers, 100 - self.args.heatmap_top_pct)
+            zeros = torch.zeros_like(multipliers).float()
+            multipliers = np.where(multipliers < threshold, zeros, multipliers)
+            
+            ig_results = original_image * multipliers
             axis.imshow(ig_results)
         
         elif self.args.heatmap_type == "green-red":
@@ -289,6 +298,14 @@ class IntegratedGradients:
             ])
             attributions = attributions.squeeze(-1).permute(1,2,0)
             
+            # Threshold the red-green channels using 'self.args.heatmap_top_pct'
+            for channel in [0,1]:
+                raise NotImplementedError("this is buggy below, use --heatmap_type heatmap")
+                threshold = np.percentile(attributions[channel].numpy(), 100 - self.args.heatmap_top_pct)
+                zeros = torch.zeros_like(attributions[channel]).float()
+                attributions[channel] = torch.where(attributions[channel] < threshold, 
+                    zeros, attributions[channel])
+            
             # Overlaid on the greyscale image
             to_img = lambda img : np.uint8(original_image * 255)
             greyscale_image = PIL.Image.fromarray(to_img(original_image)).convert("LA")
@@ -297,10 +314,17 @@ class IntegratedGradients:
             axis.imshow(attributions, alpha=0.5)
             
         elif self.args.heatmap_type == "heatmap":
-            heatmap = cv2.applyColorMap(np.uint8(255 * attributions.abs()), cv2.COLORMAP_JET)
+            attributions = attributions.abs()
+            # Threshold the heatmap values using 'self.args.heatmap_top_pct'
+            threshold = np.percentile(attributions, 100 - self.args.heatmap_top_pct)
+            zero = torch.FloatTensor([0])
+            attributions = torch.where(attributions < threshold, zero, attributions)
+    
+            heatmap = cv2.applyColorMap(np.uint8(255 * attributions), cv2.COLORMAP_JET)
             heatmap = cv2.cvtColor(heatmap, cv2.COLOR_BGR2RGB) / 255
-            axis.imshow(original_image)
-            axis.imshow(heatmap, alpha=0.8)
+            attributions.unsqueeze_(-1)
+            # axis.imshow(original_image)
+            axis.imshow(attributions * heatmap + (1 - attributions) * original_image)
             
         else:
             print(f"ERROR: unexpected figure type: {self.args.plot_type}")
