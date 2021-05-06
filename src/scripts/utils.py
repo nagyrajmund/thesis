@@ -1,3 +1,5 @@
+import torch
+from scipy.ndimage.filters import gaussian_filter
 from argparse import ArgumentError, ArgumentParser, Namespace
 import os, sys
 from contextlib import nullcontext
@@ -41,14 +43,12 @@ def create_default_argparser(**override_defaults_kwargs) -> ArgumentParser:
 
     return parser
 
-def add_choices(arg_name: str, choices: List[Any], parser: ArgumentParser, help: str = None):
-    if help is None:
-        help = f"One of the following: {choices}."
+def add_choices(arg_name: str, choices: List[Any], parser: ArgumentParser, help: str = ""):
+    help += f"\nOne of the following: {choices}."
 
-    parser.add_argument(arg_name, 
-        choices = choices, default = choices[0],
-        help=help)
+    parser.add_argument(arg_name, choices = choices, default = choices[0], help=help)
 
+    
 def save_args_to_output_dir(args: Namespace, print_args: bool = True):
     """
     Save the given command-line arguments to their 'output_dir' folder.
@@ -209,3 +209,10 @@ def opencv_to_pil_image(opencv_image: np.ndarray) -> PIL.Image.Image:
     
     pil_image = PIL.Image.fromarray(image)
     return pil_image
+
+def blur_image(image, kernel_size = 11, kernel_sigma = 5):    
+    BGR_image = image.permute(1,2,0).numpy()[:, :, ::-1]
+    blurred_image = cv2.GaussianBlur(BGR_image, (kernel_size, kernel_size), kernel_sigma)
+    blurred_image = cv2.cvtColor(blurred_image, cv2.COLOR_BGR2RGB)
+    
+    return torch.from_numpy(blurred_image).permute(2,0,1)
