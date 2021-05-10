@@ -39,6 +39,11 @@ def main():
     utils.create_output_dir(args, subdirs=["heatmaps", "curves"])
     utils.save_args_to_output_dir(args)
     
+    insertion_curves = []
+    insertion_auc_values = []
+    deletion_curves = []
+    deletion_auc_values  = []
+    
     explainer = IntegratedGradients(args)
     files = sorted(os.listdir(args.data_dir))[:args.n_image_limit]
     progress_bar = tqdm(files)
@@ -59,8 +64,23 @@ def main():
         # Compute the attribution heatmap
         attributions = explainer.compute_attributions(interpolation, target_label)
         
-        # Compute the metrics of the heatmap
-        explainer.insertion_deletion_metrics(image, attributions)
+        # Visualize the heatmaps
+        explainer.plot_heatmaps(idx, interpolation, attributions, target_label, prob, filename)
+
+        # Compute the insertion/deletion curves
+        insertion_curve, deletion_curve = explainer.insertion_deletion_curves(image, attributions, target_label)
+        insertion_curves.append(insertion_curve)
+        deletion_curves.append(deletion_curve)
+
+        # Visualize the insertion/deletion curves
+        explainer.plot_curves(insertion_curve, deletion_curve, target_label, prob, filename)
+
+        # Store the AUC of the curves
+        insertion_auc_values.append(auc(insertion_curve))
+        deletion_auc_values.append(auc(deletion_curve))
+
+    # Save the curves and their AUC to the output folder
+    save_results(insertion_curves, insertion_auc_values, deletion_curves, deletion_auc_values, args.output_dir)
 
 def autogenerate_output_dir(args):
     dir_name = f"{args.baseline} baseline, {args.interpolation} interpolation, " + \
@@ -195,6 +215,9 @@ class IntegratedGradients:
 
         parser.add_argument("--heatmap_top_pct", type=float, default=100,
                             help="This number sets the treshold for showing only the top n percent attributions.")
+
+        parser.add_argument("--n_metric_bins", type=int, default=100,
+                            help="The number of discrete bins in the insertion/deletion curve.")
         return parser
 
     def create_interpolation(self, 
@@ -209,46 +232,107 @@ class IntegratedGradients:
         else:
             return self._create_interpolation(baseline, image)
 
-    def insertion_deletion_metrics(self,
-        original_image: PIL.Image.Image, 
+    def insertion_deletion_curves(self,
+        original_image_pil: PIL.Image.Image, 
         attributions: torch.Tensor,
-        n_bins: int = 100
+        target_label: int
     ) -> Tuple[List[float], List[float]]:
+        attributions.squeeze_().abs_()
+        original_image_pil = center_crop(original_image_pil, self.classifier.dataset.output_size)
+        original_image_tensor = to_tensor(np.array(original_image_pil))
+        
+        # Get the ordered indices of the flattened image
+        ordered_heatmap_idxs = np.argsort(attributions.flatten())
+        
+        # Convert them back to 2D indices
+        ordered_heatmap_idxs = np.dstack(np.unravel_index(ordered_heatmap_idxs, shape=attributions.shape))[0]
+        blurry_image = utils.blur_image(original_image_tensor)
+
+        real_heatmap = cv2.applyColorMap(np.uint8(255 * attributions.abs()), cv2.COLORMAP_JET)
+        real_heatmap = cv2.cvtColor(real_heatmap, cv2.COLOR_BGR2RGB) / 255
+
+        insertion_curve = self.compute_insertion_curve(original_image_tensor, attributions, real_heatmap, ordered_heatmap_idxs, target_label)
+        deletion_curve = self.compute_deletion_curve(original_image_tensor, attributions, real_heatmap, ordered_heatmap_idxs, target_label)
+        
+        return insertion_curve, deletion_curve
+
+    def compute_deletion_curve(self,
+        original_image_tensor,
+        attributions,
+        heatmap,
+        ordered_heatmap_idxs,
+        target_label
+    ) -> Tuple[List[PIL.Image.Image], List[float]]:
+        # We approximate the deletion curve with a set number of steps
+        n_pixels = len(attributions.flatten())
+        step = math.ceil(n_pixels / self.args.n_metric_bins)
+
+        # The deletion metric starts with the original image
+        occluded_image = original_image_tensor.clone()
+        curr_prob = self.get_class_probability(to_pil_image(occluded_image), target_label)
+        # Store the first prediction probability
+        deletion_curve = [curr_prob]
+
+        # We start with the full heatmap and will gradually remove pixels from it
+        curr_heatmap = heatmap.copy()
+        # Store the heatmaps at each step for visualization purposes
+        heatmaps = [curr_heatmap]
+        blurry_image = utils.blur_image(original_image_tensor)
+
+        progress_bar = tqdm(reversed(range(0, n_pixels, step)), desc="Computing deletion score", leave=False, total=self.args.n_metric_bins)
+        for i in progress_bar:
+            selected_pixels = ordered_heatmap_idxs[i:i + step]
+            
+            # Remove the most important remaining pixels
+            for x, y in selected_pixels:
+                occluded_image[:, x, y] = blurry_image[:, x, y]
+                curr_heatmap[x, y, :] = [0,0,0]
+            
+            curr_prob = self.get_class_probability(to_pil_image(blurry_image), target_label)
+            deletion_curve.append(curr_prob)
+
+        return deletion_curve
+
+    def compute_insertion_curve(self,
+        original_image_tensor,
+        attributions,
+        heatmap,
+        ordered_heatmap_idxs,
+        target_label
+    ) -> Tuple[List[PIL.Image.Image], List[float]]:
         """
         Given an image and the IG heatmap, compute the probability of the target
         class as important pixels are removed/added.
         """
-        attributions.squeeze_().abs_()    # TODO(RN) take abs of heatmap values?
-
-        # Crop the original image to match the heatmap
-        original_image = self.classifier.dataset.val_transforms_img(original_image)
-        
-        # Revert the normalization
-        mean = torch.Tensor(self.classifier.dataset.mean)
-        STD = torch.Tensor(self.classifier.dataset.STD)
-        original_image = (original_image.permute(1,2,0) * STD + mean).permute(2,0,1)
-        
-        # Get the ordered indices of the flattened image
-        ordered_heatmap_idxs = np.argsort(attributions.flatten())
-        # Convert them back to 2D indices
-        ordered_heatmap_idxs = np.dstack(np.unravel_index(ordered_heatmap_idxs, shape=attributions.shape))[0]
-        blurry_image = utils.blur_image(original_image)
-
-        real_heatmap = cv2.applyColorMap(np.uint8(255 * attributions.abs()), cv2.COLORMAP_JET)
-        real_heatmap = cv2.cvtColor(real_heatmap, cv2.COLOR_BGR2RGB) / 255
-        curr_heatmap = np.zeros_like(real_heatmap)
-        
+        # We approximate the insertion curve with a set number of steps
         n_pixels = len(attributions.flatten())
-        step = math.ceil(n_pixels / n_bins)
-        progress_bar = tqdm(reversed(range(0, n_pixels, step)), desc="Computing insertion score", leave=False)
+        step = math.ceil(n_pixels / self.args.n_metric_bins)
+
+        # The insertion metric starts with a heavily blurred image
+        blurry_image = utils.blur_image(original_image_tensor)
+        curr_prob = self.get_class_probability(to_pil_image(blurry_image), target_label)
+        # Store the first prediction probability
+        insertion_curve = [curr_prob]
+        
+        # Store the reference heatmaps at each step for visualization purposes
+        heatmaps = []
+        # At the first step, it's empty as everything is removed
+        curr_heatmap = np.zeros_like(heatmap)
+        heatmaps.append(curr_heatmap)
+
+        progress_bar = tqdm(reversed(range(0, n_pixels, step)), desc="Computing insertion score", leave=False, total=self.args.n_metric_bins)
         for i in progress_bar:
             selected_pixels = ordered_heatmap_idxs[i:i + step]
             
-            # Restore the most important pixels
+            # Restore the most important remaining pixels
             for x, y in selected_pixels:
-                blurry_image[:, x, y] = original_image[:, x, y]
-                curr_heatmap[x, y, :] = real_heatmap[x, y, :]
+                blurry_image[:, x, y] = original_image_tensor[:, x, y]
+                curr_heatmap[x, y, :] = heatmap[x, y, :]
             
+            curr_prob = self.get_class_probability(to_pil_image(blurry_image), target_label)
+            insertion_curve.append(curr_prob)
+
+        return insertion_curve        
             # _, axes = plt.subplots(1, 3)
             
             # for ax, img in zip(axes, [blurry_image, curr_heatmap, real_heatmap]):
@@ -379,20 +463,59 @@ class IntegratedGradients:
         elif self.args.heatmap_type == "heatmap":
             attributions = attributions.abs()
             # Threshold the heatmap values using 'self.args.heatmap_top_pct'
-            threshold = np.percentile(attributions, 100 - self.args.heatmap_top_pct)
-            zero = torch.FloatTensor([0])
-            attributions = torch.where(attributions < threshold, zero, attributions)
+            if self.args.heatmap_top_pct is not None:
+                threshold = np.percentile(attributions, 100 - self.args.heatmap_top_pct)
+                zero = torch.FloatTensor([0])
+                attributions = torch.where(attributions < threshold, zero, attributions)
     
             heatmap = cv2.applyColorMap(np.uint8(255 * attributions), cv2.COLORMAP_JET)
             heatmap = cv2.cvtColor(heatmap, cv2.COLOR_BGR2RGB) / 255
-            attributions.unsqueeze_(-1)
-            # axis.imshow(original_image)
-            axis.imshow(attributions * heatmap + (1 - attributions) * original_image)
+            
+            heatmap_overlay = attributions * heatmap + (1 - attributions) * original_image * 0.5
+            axis.imshow(heatmap_overlay)
+
             
         else:
             print(f"ERROR: unexpected figure type: {self.args.plot_type}")
             exit(-1)
 
+
+    def plot_curves(self,
+        insertion_curve: np.ndarray, 
+        deletion_curve: np.ndarray, 
+        target_label: int, 
+        original_prediction_prob: float,
+        filename: str
+    ):
+        plt.close()
+        fig, axes = plt.subplots(1, 2, figsize=(8,4), dpi=600, constrained_layout=False, sharey=True)
+        results = [insertion_curve, deletion_curve]
+        line_labels = ["insertion", "deletion"]
+        x_labels = ["ratio of inserted pixels", "ratio of deleted pixels"]
+        y_labels = ["prediction confidence", ""]
+        colors = ["blue", "red"]
+
+        # Format the axes as percentages
+        x_tick_formatter = ticker.PercentFormatter(xmax=self.args.n_metric_bins, decimals=False)
+        y_tick_formatter = ticker.PercentFormatter(xmax=1.0, decimals=False)        
+        xx = np.arange(self.args.n_metric_bins + 1)
+        for axis, scores, line_label, x_label, y_label, color in zip(axes, results, line_labels, x_labels, y_labels, colors):
+            axis.plot(xx, scores, label=line_label, color=color, linewidth=0.8)
+            axis.fill_between(xx, 0, scores, color=color, alpha=0.3)
+            axis.legend()
+            axis.set_ylim(bottom=0, top=1)
+            axis.xaxis.set_major_formatter(x_tick_formatter)
+            axis.yaxis.set_major_formatter(y_tick_formatter)
+            axis.set_xlabel(x_label)
+            axis.set_ylabel(y_label)
+
+        fig.subplots_adjust(wspace=0.05)
+        plt.suptitle(f"Original prediction: {self.classifier.dataset.class_names[target_label]} ({original_prediction_prob*100:.0f}%)" )
+
+        if self.args.show_plot:
+            plt.show()
+        else:
+            plt.savefig(join(self.args.output_dir, "curves", filename))
 
     def _create_interpolation(self,
         baseline: PIL.Image.Image, 
