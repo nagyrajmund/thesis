@@ -83,8 +83,8 @@ def main():
     save_results(insertion_curves, insertion_auc_values, deletion_curves, deletion_auc_values, args.output_dir)
 
 def autogenerate_output_dir(args):
-    dir_name = f"{args.baseline} baseline, {args.interpolation} interpolation, " + \
-               f"{args.n_steps} steps, {args.n_metric_bins} bins"
+    dir_name = f"{args.baseline} baseline, {args.interpolation} interpolation,\n" + \
+               f"{args.n_steps} steps, {args.n_insertion_bins} insertion bins, {args.n_deletion_bins} deletion bins"
     
     return join("outputs", dir_name)
 
@@ -216,8 +216,11 @@ class IntegratedGradients:
         parser.add_argument("--heatmap_top_pct", type=float, default=100,
                             help="This number sets the treshold for showing only the top n percent attributions.")
 
-        parser.add_argument("--n_metric_bins", type=int, default=100,
-                            help="The number of discrete bins in the insertion/deletion curve.")
+        parser.add_argument("--n_insertion_bins", type=int, default=100,
+                            help="The number of discrete bins in the insertion curve.")
+        
+        parser.add_argument("--n_deletion_bins", type=int, default=200,
+                            help="The number of discrete bins in the deletion curve.")
         return parser
 
     def create_interpolation(self, 
@@ -265,7 +268,7 @@ class IntegratedGradients:
     ) -> Tuple[List[PIL.Image.Image], List[float]]:
         # We approximate the deletion curve with a set number of steps
         n_pixels = len(attributions.flatten())
-        step = math.ceil(n_pixels / self.args.n_metric_bins)
+        step = math.ceil(n_pixels / self.args.n_deletion_bins)
 
         # The deletion metric starts with the original image
         occluded_image = original_image_tensor.clone()
@@ -279,7 +282,7 @@ class IntegratedGradients:
         heatmaps = [curr_heatmap]
         blurry_image = utils.blur_image(original_image_tensor)
 
-        progress_bar = tqdm(reversed(range(0, n_pixels, step)), desc="Computing deletion score", leave=False, total=self.args.n_metric_bins)
+        progress_bar = tqdm(reversed(range(0, n_pixels, step)), desc="Computing deletion score", leave=False, total=self.args.n_deletion_bins)
         for i in progress_bar:
             selected_pixels = ordered_heatmap_idxs[i:i + step]
             
@@ -306,7 +309,7 @@ class IntegratedGradients:
         """
         # We approximate the insertion curve with a set number of steps
         n_pixels = len(attributions.flatten())
-        step = math.ceil(n_pixels / self.args.n_metric_bins)
+        step = math.ceil(n_pixels / self.args.n_insertion_bins)
 
         # The insertion metric starts with a heavily blurred image
         blurry_image = utils.blur_image(original_image_tensor)
@@ -320,7 +323,7 @@ class IntegratedGradients:
         curr_heatmap = np.zeros_like(heatmap)
         heatmaps.append(curr_heatmap)
 
-        progress_bar = tqdm(reversed(range(0, n_pixels, step)), desc="Computing insertion score", leave=False, total=self.args.n_metric_bins)
+        progress_bar = tqdm(reversed(range(0, n_pixels, step)), desc="Computing insertion score", leave=False, total=self.args.n_insertion_bins)
         for i in progress_bar:
             selected_pixels = ordered_heatmap_idxs[i:i + step]
             
@@ -495,19 +498,26 @@ class IntegratedGradients:
         y_labels = ["prediction confidence", ""]
         colors = ["blue", "red"]
 
+        x_values = [
+            np.arange(self.args.n_insertion_bins + 1),
+            np.arange(self.args.n_deletion_bins + 1)
+        ]
         # Format the axes as percentages
-        x_tick_formatter = ticker.PercentFormatter(xmax=self.args.n_metric_bins, decimals=False)
+        x_tick_formatters = [
+            ticker.PercentFormatter(xmax=self.args.n_insertion_bins, decimals=False),
+            ticker.PercentFormatter(xmax=self.args.n_deletion_bins, decimals=False)
+        ]
         y_tick_formatter = ticker.PercentFormatter(xmax=1.0, decimals=False)        
-        xx = np.arange(self.args.n_metric_bins + 1)
-        for axis, scores, line_label, x_label, y_label, color in zip(axes, results, line_labels, x_labels, y_labels, colors):
-            axis.plot(xx, scores, label=line_label, color=color, linewidth=0.8)
-            axis.fill_between(xx, 0, scores, color=color, alpha=0.3)
-            axis.legend()
-            axis.set_ylim(bottom=0, top=1)
-            axis.xaxis.set_major_formatter(x_tick_formatter)
-            axis.yaxis.set_major_formatter(y_tick_formatter)
-            axis.set_xlabel(x_label)
-            axis.set_ylabel(y_label)
+
+        for i in [0,1]:
+            axes[i].plot(x_values[i], results[i], label=line_labels[i], color=colors[i], linewidth=0.8)
+            axes[i].fill_between(x_values[i], 0, results[i], color=colors[i], alpha=0.3)
+            axes[i].legend()
+            axes[i].set_ylim(bottom=0, top=1)
+            axes[i].xaxis.set_major_formatter(x_tick_formatters[i])
+            axes[i].yaxis.set_major_formatter(y_tick_formatter)
+            axes[i].set_xlabel(x_labels[i])
+            axes[i].set_ylabel(y_labels[i])
 
         fig.subplots_adjust(wspace=0.05)
         plt.suptitle(f"Original prediction: {self.classifier.dataset.class_names[target_label]} ({original_prediction_prob*100:.0f}%)" )
