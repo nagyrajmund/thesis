@@ -12,11 +12,13 @@ import cv2
 import json
 from os.path import join
 from matplotlib import pyplot as plt
-plt.style.use('fivethirtyeight')
+# plt.style.use('fivethirtyeight')
 import PIL
 from typing import Tuple
 from pprint import pprint
 from matplotlib.axes import Axes
+from tqdm import tqdm
+from functools import partialmethod
 
 def create_default_argparser(**override_defaults_kwargs) -> ArgumentParser:
     """
@@ -37,8 +39,14 @@ def create_default_argparser(**override_defaults_kwargs) -> ArgumentParser:
                         help="If given, then the output dir is cleared at the beginning without any warnings.")
 
     parser.add_argument("--show_plot", action="store_true",
-                        help="If set,the script's results are shown on the screen instead of saving them to 'output_dir'.")
+                        help="If set, the script's results are shown on the screen instead of saving them to 'output_dir'.")
 
+    parser.add_argument("--disable_tqdm", action="store_true",
+                        help="If set, the progress bar calculations will be completely disabled.")
+
+    parser.add_argument("--n_image_limit", type=int, default=None,
+                        help="The max number of images to use in 'data_dir'. By default we use all images.")
+                        
     parser.set_defaults(**override_defaults_kwargs)
 
     return parser
@@ -61,7 +69,7 @@ def save_args_to_output_dir(args: Namespace, print_args: bool = True):
     with open(join(args.output_dir, "cmd_args.json"), "w") as file:
         json.dump(args.__dict__, file, indent=2)
 
-def create_output_dir(args: Namespace):
+def create_output_dir(args: Namespace, subdirs = []):
     """
     Create the 'output_dir' folder. If it already exists, it is emptied upon the user's approval.
     """
@@ -84,6 +92,9 @@ def create_output_dir(args: Namespace):
 
     print()
     os.makedirs(args.output_dir)
+
+    for subdir in subdirs:
+        os.makedirs(join(args.output_dir, subdir))
 
 def infer_detectron2_class_names(config_file: str) -> List[str]:
     """
@@ -211,8 +222,17 @@ def opencv_to_pil_image(opencv_image: np.ndarray) -> PIL.Image.Image:
     return pil_image
 
 def blur_image(image, kernel_size = 11, kernel_sigma = 5):    
+    # Convert to BGR image, which is what OpenCV expects
     BGR_image = image.permute(1,2,0).numpy()[:, :, ::-1]
     blurred_image = cv2.GaussianBlur(BGR_image, (kernel_size, kernel_size), kernel_sigma)
+    # Convert back to RGB
     blurred_image = cv2.cvtColor(blurred_image, cv2.COLOR_BGR2RGB)
     
     return torch.from_numpy(blurred_image).permute(2,0,1)
+
+def maybe_disable_tqdm(args: Namespace):
+    """
+    Disable tqdm if "args.disable_tqdm" is True.
+    """
+    if args.disable_tqdm:
+        tqdm.__init__ = partialmethod(tqdm.__init__, disable=True)

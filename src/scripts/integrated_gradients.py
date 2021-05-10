@@ -20,6 +20,10 @@ from tqdm import tqdm
 from scripts import utils
 from pprint import pprint
 from scipy.special import softmax
+from torchvision.transforms.functional import center_crop, to_tensor, to_pil_image
+from matplotlib import ticker
+import sklearn
+import scipy
 # -----------------------------------------------------------------------------------
 
 def main():
@@ -28,35 +32,87 @@ def main():
     in the given dataset.
     """
     args = parse_args()
-    utils.create_output_dir(args)
+    if args.output_dir is None:
+        args.output_dir = autogenerate_output_dir(args)
+
+    utils.maybe_disable_tqdm(args)
+    utils.create_output_dir(args, subdirs=["heatmaps", "curves"])
     utils.save_args_to_output_dir(args)
     
     explainer = IntegratedGradients(args)
-    progress_bar = tqdm(sorted(os.listdir(args.data_dir)))
-    for idx, file in enumerate(progress_bar):
-        progress_bar.set_description(file)
+    files = sorted(os.listdir(args.data_dir))[:args.n_image_limit]
+    progress_bar = tqdm(files)
+    for idx, filename in enumerate(progress_bar):
+        # Update the progress bar
+        progress_bar.set_description(get_current_status(filename, insertion_auc_values, deletion_auc_values))
 
         # Open the input image    
-        image = PIL.Image.open(join(args.data_dir, file)).convert("RGB")
+        image = PIL.Image.open(join(args.data_dir, filename)).convert("RGB")
     
         # Create the baseline image and the interpolation    
         baseline = explainer.get_baseline(image)
         interpolation = explainer.create_interpolation(baseline, image)
 
         # Select the label to condition the explanation on
-        if args.target_label is None:
-            target_label, prob = explainer.get_classifier_prediction(image)
-        else:
-            target_label, prob = args.target_label, None
+        target_label, prob = explainer.get_classifier_prediction(image, args.target_label)
 
         # Compute the attribution heatmap
         attributions = explainer.compute_attributions(interpolation, target_label)
         
         # Compute the metrics of the heatmap
         explainer.insertion_deletion_metrics(image, attributions)
+
+def autogenerate_output_dir(args):
+    dir_name = f"{args.baseline} baseline, {args.interpolation} interpolation, " + \
+               f"{args.n_steps} steps, {args.n_metric_bins} bins"
+    
+    return join("outputs", dir_name)
+
+def get_current_status(filename, insertion_auc_values, deletion_auc_values):
+    description =  f"[input {filename_to_id(filename)}]"
         
-        # Visualize the results
-        explainer.plot_results(idx, interpolation, attributions, target_label, prob, file)
+    if len(insertion_auc_values) > 0:
+        description += f" ins: {describe_array(insertion_auc_values)},"
+        description += f" del: {describe_array(deletion_auc_values)}"
+    
+    return description
+
+def filename_to_id(fname):
+    start_index = len("Places365_val_")
+    end_index = -len(".jpg")
+
+    return int(fname[start_index : end_index])
+
+def describe_array(arr):
+    mean = np.mean(arr)
+    std = np.std(arr)
+    
+    return f"{mean:.1f}+-{std:.1f}"
+
+def save_results(insertion_curves, insertion_auc_values, deletion_curves, deletion_auc_values, output_dir):
+    insertion = scipy.stats.describe(insertion_auc_values)
+    deletion = scipy.stats.describe(deletion_auc_values)
+
+    min_ = lambda metric: metric.minmax[0]
+    max_ = lambda metric: metric.minmax[1]
+    std = lambda metric: np.sqrt(metric.variance)
+
+    result_text = "\n\n".join([
+        f"{metric_name} AUC:\t{metric.mean:05.2%} +- {std(metric):05.2%},\t" + \
+        f"min: {min_(metric):05.2%}, max: {max_(metric):05.2%}"
+        for metric_name, metric in zip(["Insertion", "Deletion"], [insertion, deletion])
+    ])
+
+    with open(join(output_dir, "results.txt"), "w") as result_file:
+        print(result_text, file=result_file)
+
+    np.save(join(output_dir, "insertion_curves.npy"), np.asarray(insertion_curves))
+    np.save(join(output_dir, "deletion_curves.npy"), np.asarray(deletion_curves))
+
+
+def auc(values):
+    loc = np.linspace(0, 1, num=len(values), endpoint=True)
+    return sklearn.metrics.auc(loc, values)
 
 # -----------------------------------------------------------------------------------
 
@@ -91,10 +147,13 @@ class IntegratedGradients:
 
         if args.baseline == "inpainted" or args.object_centric:
             self.instance_segmentation_model = InstanceSegmentationModel(device=args.device)
+            
+            # The inpainting model is always on cpu due to a CUDA dependency
+            # conflict between tensorflow 1 and pytorch
             self.inpainting_model = InpaintingModel()
         
         if "latent" in args.interpolation:
-            generative_model = ImageGenerator(device=args.device)
+            self.generative_model = ImageGenerator(device=args.device)
         
         self.args = args
     
@@ -107,7 +166,7 @@ class IntegratedGradients:
 
         utils.add_choices("--interpolation", parser=parser,  choices=["linear-input", "linear-latent"])
 
-        utils.add_choices("--baseline",      parser=parser,  choices=["black", "inpainted", "random"])
+        utils.add_choices("--baseline",      parser=parser,  choices=["black", "inpainted", "random", "white"])
 
         utils.add_choices("--heatmap_type",  parser=parser,  choices=["green-red", "product", "heatmap"])
         
@@ -125,7 +184,7 @@ class IntegratedGradients:
         parser.add_argument("--target_label", type=int, default=None,
                             help="The target label's index for IG. By default it is" + \
                                 "the top-1 prediction of the classifier on the original image.")
-
+                                
         parser.add_argument("--dilation", type=int, default=7,
                             help="If given, and the baseline is inpainted, then the " + \
                                 "binary mask of the instance segmentation network " + \
@@ -201,7 +260,7 @@ class IntegratedGradients:
             #     ax.set_title(i)
             # plt.show()
 
-    def plot_results(self, image_idx, interpolation_images, attributions, label, prob, file):
+    def plot_heatmaps(self, image_idx, interpolation_images, attributions, label, prob, file):
         """
         Plot the attribution results as configured in 'args'.
         """
@@ -209,19 +268,21 @@ class IntegratedGradients:
         #          it would be enough to crop the image, but we need the to_img function below
         #          for the gradients.
         if self.args.plot_type == "single":
+            # Create new figure
+            plt.close()
+            plt.figure(constrained_layout=True)
             # Plot just one image and save it afterwards
             attribution_axis = plt.gca()
             skip_saving = False
 
         elif self.args.plot_type == "grid":
-            # 
-
             # the Axes are stored in a global variable because we want to keep them between function calls
             global g_plot_axes
             
             # Create a new figure for the first image and also when the current
             # figure is filled completely
             if image_idx % self.args.grid_size ** 2 == 0:
+                plt.close()
                 _, g_plot_axes = plt.subplots(
                     self.args.grid_size, self.args.grid_size, 
                     constrained_layout=True, 
@@ -234,6 +295,7 @@ class IntegratedGradients:
         
         elif self.args.plot_type == "single+interpolation":
             # Create two-row figure of the attribution overlay and the interpolation
+            plt.close()
             fig = plt.figure(constrained_layout=True)
             n_images = len(interpolation_images)
             grid_spec = GridSpec(2, n_images, figure=fig)
@@ -241,6 +303,7 @@ class IntegratedGradients:
             interpolation_axes = [fig.add_subplot(grid_spec[1, i]) for i in range(n_images)]
             
             skip_saving = False
+
         else:
             print(f"ERROR: unknown visualization type {self.args.plot_type}!")
             exit(-1)
@@ -268,7 +331,7 @@ class IntegratedGradients:
         if self.args.show_plot:
             plt.show()
         else:
-            plt.savefig(join(self.args.output_dir, file), bbox_inches="tight", dpi=200, transparent=True)
+            plt.savefig(join(self.args.output_dir, "heatmaps", file), bbox_inches="tight", transparent=True, dpi=600)
 
     def plot_IG_attributions(self, axis: Axes, original_image: torch.Tensor, attributions: torch.Tensor):
         """
@@ -426,11 +489,17 @@ class IntegratedGradients:
         Returns:
             attributions:          a tensor of shape (H,W,C) containing the normalized pixel-wise attributions.
         """
+        # TODO(RN): semantic masks might get messed up for latent reconstructions... use the ones on the original image? 
+        # TODO(RN): but thats not good cuz e.g. people can disappear in latent space
+        # TODO(RN): figure it out...
+        
+    
         n_steps = len(interpolation_images)
         
         sum_gradients = torch.zeros(3, 224, 224)
         progress_bar = tqdm(interpolation_images, desc="Calculating integrated gradients", leave=False)
         for img in progress_bar:
+            # TODO(RN): the semantic masks are probably useless in the interpolation -> use RGB only
             gradients = self._get_gradients_of_classifier_output_wrt_input_image(img, target_label)
             sum_gradients += gradients
 
@@ -463,6 +532,7 @@ class IntegratedGradients:
             gradients:      A tensor of shape (3,H,W) containing the gradients of the image
         """
         # Get segmentation mask, preprocess the inputs and put them on the right device
+        # TODO(RN): the semantic masks are probably useless in the interpolation -> use RGB only
         semantic_mask, semantic_scores = self.classifier.get_segmentation(image)
         image_tensor = self.classifier.preprocess_img(image).to(self.args.device)
         semantic_mask = semantic_mask.to(self.args.device)
@@ -486,6 +556,9 @@ class IntegratedGradients:
         baseline_type = self.args.baseline
         if baseline_type == "black":
             baseline = np.zeros_like(np.asarray(image), dtype=np.uint8)
+        
+        elif baseline_type == "white":
+            baseline = 255 * np.ones_like(np.asarray(image), dtype=np.uint8)
 
         elif baseline_type == "random":
             shape = np.asarray(image).shape
@@ -544,27 +617,46 @@ class IntegratedGradients:
         else:
             return masks
 
-    def get_classifier_prediction(self, image: PIL.Image.Image) -> Tuple[int, float]:
+    def get_classifier_prediction(self, 
+        image: Union[PIL.Image.Image, torch.Tensor],
+        label: int = None, 
+        semantic_mask: torch.Tensor = None,
+        semantic_scores: torch.Tensor = None
+        ) -> Tuple[int, float]:
         """
         Return the predicted label and its probability using the classifier.
         """
         preds = self.classifier.predict(image).squeeze()
-        label = preds.argmax().item()
-        prob = softmax(preds.detach().cpu().numpy()).max().item()
+        if label is None:
+            label = preds.argmax().item()
+            prob = softmax(preds.detach().cpu().numpy()).max().item()
+        else:
+            prob = softmax(preds.detach().cpu().numpy())[label].item()
 
         return label, prob
+    
+    def get_class_probability(self, image: PIL.Image.Image, target_label: int = None) -> float:
+        pred = self.classifier.predict(image).squeeze()
+        prob = softmax(pred.detach().cpu().numpy())[target_label].item()
+        
+        return prob
 
 def parse_args() -> Namespace:
     """
     Return the parsed command-line arguments for this script.
     """
     # Add with default arguments such as --show_plot and --output_dir
-    parser = utils.create_default_argparser(output_dir = "outputs/integrated_gradients")
+    parser = utils.create_default_argparser()
     
     IntegratedGradients.add_argparse_args(parser)
     
     return parser.parse_args()
 
 if __name__ == "__main__":
+    with open("TODO.md") as greetings:
+        print("-"*80)
+        print(greetings.read())
+        print("-"*80)
+    
     main()
     
