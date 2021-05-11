@@ -42,6 +42,6 @@ Ongoing thesis project on improving integrated gradients with latent interpolati
 
 - Download the semantic segmentation network:
   ```
-  wget http://sceneparsing.csail.mit.edu/model/pytorch/ade20k-resnet50-upernet/decoder_epoch_30.pth -P utils/upernet_checkpoint/decoder_epoch_30.pth
-  wget http://sceneparsing.csail.mit.edu/model/pytorch/ade20k-resnet50-upernet/encoder_epoch_30.pth -P utils/upernet_checkpoint/encoder_epoch_30.pth
+  wget http://sceneparsing.csail.mit.edu/model/pytorch/ade20k-resnet50-upernet/decoder_epoch_30.pth -P utils/upernet_checkpoint/
+  wget http://sceneparsing.csail.mit.edu/model/pytorch/ade20k-resnet50-upernet/encoder_epoch_30.pth -P utils/upernet_checkpoint/
   ```
