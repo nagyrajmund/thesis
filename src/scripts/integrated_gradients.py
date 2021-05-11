@@ -1,3 +1,4 @@
+from datetime import datetime
 import math
 import cv2
 from PIL.Image import blend
@@ -43,7 +44,9 @@ def main():
     insertion_auc_values = []
     deletion_curves = []
     deletion_auc_values  = []
-    
+    predicted_labels = []
+    prediction_confidences = []
+
     explainer = IntegratedGradients(args)
     files = sorted(os.listdir(args.data_dir))[:args.n_image_limit]
     progress_bar = tqdm(files)
@@ -59,13 +62,14 @@ def main():
         interpolation = explainer.create_interpolation(baseline, image)
 
         # Select the label to condition the explanation on
-        target_label, prob = explainer.get_classifier_prediction(image, args.target_label)
-
+        target_label, target_prob = explainer.get_classifier_prediction(image, args.target_label)
+        predicted_labels.append(target_label)
+        prediction_confidences.append(target_prob)
         # Compute the attribution heatmap
         attributions = explainer.compute_attributions(interpolation, target_label)
         
         # Visualize the heatmaps
-        explainer.plot_heatmaps(idx, interpolation, attributions, target_label, prob, filename)
+        explainer.plot_heatmaps(idx, interpolation, attributions, target_label, target_prob, filename)
 
         # Compute the insertion/deletion curves
         insertion_curve, deletion_curve = explainer.insertion_deletion_curves(image, attributions, target_label)
@@ -73,18 +77,74 @@ def main():
         deletion_curves.append(deletion_curve)
 
         # Visualize the insertion/deletion curves
-        explainer.plot_curves(insertion_curve, deletion_curve, target_label, prob, filename)
+        explainer.plot_curves(insertion_curve, deletion_curve, target_label, target_prob, filename)
 
         # Store the AUC of the curves
         insertion_auc_values.append(auc(insertion_curve))
         deletion_auc_values.append(auc(deletion_curve))
 
     # Save the curves and their AUC to the output folder
-    save_results(insertion_curves, insertion_auc_values, deletion_curves, deletion_auc_values, args.output_dir)
+    save_results(args, insertion_curves, insertion_auc_values, deletion_curves, deletion_auc_values, predicted_labels, prediction_confidences)
+
+def save_results(args, insertion_curves, insertion_auc_values, deletion_curves, deletion_auc_values, predicted_labels, prediction_confidences):
+    insertion = scipy.stats.describe(insertion_auc_values)
+    deletion = scipy.stats.describe(deletion_auc_values)
+
+    format = lambda x : "{:05.2%}".format(float(x))
+    min_ = lambda metric: metric.minmax[0]
+    max_ = lambda metric: metric.minmax[1]
+    std = lambda metric: np.sqrt(metric.variance)
+
+    # Create a result string using tabs as a separator so that it can be
+    # pasted to e.g. google sheets
+    result_columns = [
+        # Current date and time
+        datetime.now().strftime("%d/%m/%Y"),
+        datetime.now().strftime("%H:%M:%S"),
+        
+        # Parameters
+        args.baseline,
+        args.interpolation,
+        args.n_steps,
+        args.n_insertion_bins,
+        args.n_deletion_bins,
+        
+        # Number of images
+        len(insertion_auc_values),
+
+        # Insertion results
+        format(insertion.mean),
+        format(std(insertion)),
+        format(min_(insertion)),
+        format(max_(insertion)),
+        
+        # Insertion results
+        format(deletion.mean),
+        format(std(deletion)),
+        format(min_(deletion)),
+        format(max_(deletion))
+    ]
+
+    result_text = "\t".join(str(val) for val in result_columns)
+
+    with open(join(args.output_dir, "result.txt"), "a") as result_file:
+        print(result_text, file=result_file)
+
+    with open(join(args.output_dir, "..", "result_log.txt"), "a") as result_file:
+        print(result_text, file=result_file)
+
+    def save_array(array, filename):
+        np.save(join(args.output_dir, filename), np.asarray(array))
+
+    save_array(insertion_curves,       "insertion_curves")
+    save_array(deletion_curves,        "deletion_curves")
+    save_array(predicted_labels,       "predicted_labels")
+    save_array(prediction_confidences, "prediction_confidences")
 
 def autogenerate_output_dir(args):
     dir_name = f"{args.baseline} baseline, {args.interpolation} interpolation,\n" + \
-               f"{args.n_steps} steps, {args.n_insertion_bins} insertion bins, {args.n_deletion_bins} deletion bins"
+               f"{args.n_image_limit} images, {args.dilation} dilation, {args.n_steps} steps,\n" + \
+               f"{args.n_insertion_bins} insertion bins, {args.n_deletion_bins} deletion bins"
     
     return join("outputs", dir_name)
 
@@ -107,28 +167,7 @@ def describe_array(arr):
     mean = np.mean(arr)
     std = np.std(arr)
     
-    return f"{mean:.1f}+-{std:.1f}"
-
-def save_results(insertion_curves, insertion_auc_values, deletion_curves, deletion_auc_values, output_dir):
-    insertion = scipy.stats.describe(insertion_auc_values)
-    deletion = scipy.stats.describe(deletion_auc_values)
-
-    min_ = lambda metric: metric.minmax[0]
-    max_ = lambda metric: metric.minmax[1]
-    std = lambda metric: np.sqrt(metric.variance)
-
-    result_text = "\n\n".join([
-        f"{metric_name} AUC:\t{metric.mean:05.2%} +- {std(metric):05.2%},\t" + \
-        f"min: {min_(metric):05.2%}, max: {max_(metric):05.2%}"
-        for metric_name, metric in zip(["Insertion", "Deletion"], [insertion, deletion])
-    ])
-
-    with open(join(output_dir, "results.txt"), "w") as result_file:
-        print(result_text, file=result_file)
-
-    np.save(join(output_dir, "insertion_curves.npy"), np.asarray(insertion_curves))
-    np.save(join(output_dir, "deletion_curves.npy"), np.asarray(deletion_curves))
-
+    return f"{mean:05.2%}+-{std:05.2%}"
 
 def auc(values):
     loc = np.linspace(0, 1, num=len(values), endpoint=True)
@@ -214,13 +253,14 @@ class IntegratedGradients:
                             help="The name of the device to use (e.g. 'cpu' or 'cuda').")
 
         parser.add_argument("--heatmap_top_pct", type=float, default=100,
-                            help="This number sets the treshold for showing only the top n percent attributions.")
+                            help="This number sets the threshold for showing only the top n percent attributions.")
 
         parser.add_argument("--n_insertion_bins", type=int, default=100,
                             help="The number of discrete bins in the insertion curve.")
         
         parser.add_argument("--n_deletion_bins", type=int, default=200,
                             help="The number of discrete bins in the deletion curve.")
+
         return parser
 
     def create_interpolation(self, 
@@ -270,12 +310,12 @@ class IntegratedGradients:
         if metric_name == "insertion":
             starting_input = utils.blur_image(original_image_tensor)
             final_input = original_image_tensor
-            n_steps = self.args.n_insertion_bins
+            n_bins = self.args.n_insertion_bins
 
         elif metric_name == "deletion":
             starting_input = original_image_tensor
             final_input = utils.blur_image(original_image_tensor)
-            n_steps = self.args.n_deletion_bins
+            n_bins = self.args.n_deletion_bins
         
         else:
             raise ValueError(f"Unknown metric '{metric_name}'!")
@@ -287,16 +327,17 @@ class IntegratedGradients:
         metric_curve = [get_curr_prob()]
 
         n_pixels = len(attributions.flatten())
-        step = n_pixels // n_steps
-        
+
+        bin_width = n_pixels // n_bins
+                
         progress_bar = tqdm(
-            reversed(range(0, n_pixels, step)),
+            reversed(range(0, n_pixels - bin_width, bin_width)),
             desc=f"Computing {metric_name} score", 
-            leave=False, total=n_steps
+            leave=False, total=n_bins
         )
 
         for i in progress_bar:
-            selected_pixels = ordered_heatmap_idxs[i:i + step]   
+            selected_pixels = ordered_heatmap_idxs[i:i + bin_width]   
 
             # Restore or delete the most important remaining pixels
             for x, y in selected_pixels:
