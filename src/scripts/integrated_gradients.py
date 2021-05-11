@@ -108,7 +108,8 @@ def save_results(args, insertion_curves, insertion_auc_values, deletion_curves, 
         args.n_steps,
         args.n_insertion_bins,
         args.n_deletion_bins,
-        
+        args.deletion_type,
+
         # Number of images
         len(insertion_auc_values),
 
@@ -143,7 +144,8 @@ def save_results(args, insertion_curves, insertion_auc_values, deletion_curves, 
 
 def autogenerate_output_dir(args):
     dir_name = f"{args.baseline} baseline, {args.interpolation} interpolation,\n" + \
-               f"{args.n_image_limit} images, {args.dilation} dilation, {args.n_steps} steps,\n" + \
+               f"{args.deletion_type} deletion, {args.n_image_limit} images\n" + \
+               f"{args.dilation} dilation, {args.n_steps} steps,\n" + \
                f"{args.n_insertion_bins} insertion bins, {args.n_deletion_bins} deletion bins"
     
     return join("outputs", dir_name)
@@ -227,6 +229,9 @@ class IntegratedGradients:
 
         utils.add_choices("--baseline",      parser=parser,  choices=["black", "inpainted", "random", "white"])
 
+        utils.add_choices("--deletion_type", parser=parser,  choices=["blur", "black", "grey", "white"],
+                          help="The pixel value to use when replacing pixels in the deletion metric.")
+        
         utils.add_choices("--heatmap_type",  parser=parser,  choices=["green-red", "product", "heatmap"])
         
         utils.add_choices("--plot_type",     parser=parser,  choices=["single", "single+interpolation", "grid"])
@@ -313,9 +318,19 @@ class IntegratedGradients:
             n_bins = self.args.n_insertion_bins
 
         elif metric_name == "deletion":
-            starting_input = original_image_tensor
-            final_input = utils.blur_image(original_image_tensor)
             n_bins = self.args.n_deletion_bins
+            starting_input = original_image_tensor
+
+            if self.args.deletion_type == "blur":
+                final_input = utils.blur_image(original_image_tensor)
+            elif self.args.deletion_type == "black":
+                final_input = torch.zeros_like(original_image_tensor)
+            elif self.args.deletion_type == "white":
+                final_input = torch.ones_like(original_image_tensor)
+            elif self.args.deletion_type == "grey":
+                final_input = 0.5 * torch.ones_like(original_image_tensor)
+            else:
+                raise ValueError(f"Unknown deletion type '{self.args.deletion_type}!")
         
         else:
             raise ValueError(f"Unknown metric '{metric_name}'!")
