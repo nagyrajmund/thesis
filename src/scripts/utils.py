@@ -66,6 +66,10 @@ def save_args_to_output_dir(args: Namespace, print_args: bool = True):
         pprint(vars(args), indent=4, compact=False)
         print('-'*80)
 
+    if args.show_plot:
+        return
+        
+
     with open(join(args.output_dir, "cmd_args.json"), "w") as file:
         json.dump(args.__dict__, file, indent=2)
 

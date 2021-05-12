@@ -201,9 +201,19 @@ class IntegratedGradients:
     def __init__(self,
         args: Namespace,
     ):
+        
+        if args.use_segmentation_branch:
+            segmentation_model = SemanticSegmentationModel(device=args.device)
+            architecture = "RGB and Semantic"
+        else:
+            segmentation_model = None
+            architecture = "RGB only"
+        
         self.classifier = SceneRecognitionModel(
-            segmentation_model = SemanticSegmentationModel(device=args.device),
-            device = args.device
+           architecture = architecture,
+           device = args.device,
+           do_ten_crops = False,
+           segmentation_model = segmentation_model 
         )
 
         if args.baseline == "inpainted" or args.object_centric:
@@ -224,6 +234,8 @@ class IntegratedGradients:
                         help="This flag enables the object centric version of the algorithm, " + \
                              "where we linearly interpolate between sequentially inpainted "   + \
                              "versions of the original image, i.e. objects are removed one-by-one.")
+
+        parser.add_argument("--use_segmentation_branch", action="store_true")
 
         utils.add_choices("--interpolation", parser=parser,  choices=["linear-input", "linear-latent"])
 
@@ -682,11 +694,15 @@ class IntegratedGradients:
         """
         # Get segmentation mask, preprocess the inputs and put them on the right device
         # TODO(RN): the semantic masks are probably useless in the interpolation -> use RGB only
-        semantic_mask, semantic_scores = self.classifier.get_segmentation(image)
-        image_tensor = self.classifier.preprocess_img(image).to(self.args.device)
-        semantic_mask = semantic_mask.to(self.args.device)
-        semantic_scores = semantic_scores.to(self.args.device)
+        semantic_mask, semantic_scores = None, None
+        
+        if self.args.use_segmentation_branch:
+            semantic_mask, semantic_scores = self.classifier.get_segmentation(image)
+            semantic_mask = semantic_mask.to(self.args.device)
+            semantic_scores = semantic_scores.to(self.args.device)
 
+        image_tensor = self.classifier.preprocess_img(image).to(self.args.device)
+       
         # Get the classifiers prediction while tracking the gradients
         prediction = self.classifier.predict_from_tensors(
             image_tensor, semantic_mask, semantic_scores, track_image_gradients=True).squeeze_()

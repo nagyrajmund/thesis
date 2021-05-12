@@ -37,7 +37,11 @@ Ongoing thesis project on improving integrated gradients with latent interpolati
   ```
 - Download the classifier:
   ```
-  wget http://www-vpu.eps.uam.es/publications/SemanticAwareSceneRecognition/Model_Zoo/Places_365/SAScene_ResNet18_Places.pth.tar -P utils/SASceneNet_checkpoint/SAScene_ResNet18_Places.pth.tar
+  wget http://www-vpu.eps.uam.es/publications/SemanticAwareSceneRecognition/Model_Zoo/Places_365/SAScene_ResNet18_Places.pth.tar -P utils/SAScene_checkpoints/
+
+  wget http://www-vpu.eps.uam.es/publications/SemanticAwareSceneRecognition/Model_Zoo/Places_365/RGB_ResNet18_Places.pth.tar -P utils/SAScene_checkpoints
+
+  wget http://www-vpu.eps.uam.es/publications/SemanticAwareSceneRecognition/Model_Zoo/Places_365/SemBranch_Places.pth.tar -P utils/SAScene_checkpoints/
   ```
 
 - Download the semantic segmentation network:

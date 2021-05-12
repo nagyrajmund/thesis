@@ -1,5 +1,6 @@
 import os
 import PIL
+from typing import Optional
 from scripts import utils
 import torch
 from matplotlib import pyplot as plt
@@ -9,7 +10,7 @@ import torch
 from torchvision import transforms
 
 from models.backends.SASceneNet import utils
-from models.backends.SASceneNet.SASceneNet import SASceneNet
+from models.backends.SASceneNet.SASceneNet import SASceneNet_RGB_Only, SASceneNet_Semantic_Only, SASceneNet_SemanticAndRGB
 from models.wrappers.segmentation import SemanticSegmentationModel
 
 class PlacesDatasetMetadata:
@@ -91,38 +92,69 @@ class PlacesDatasetMetadata:
         
         return class_names, class_folders
 
+
+
 class SceneRecognitionModel:
+    architectures = ["RGB only", "RGB and Semantic"]
     def __init__(self, 
-        segmentation_model : SemanticSegmentationModel,
-        model_path   : str = "../../utils/SAScene_checkpoint/SAScene_ResNet18_Places.pth.tar",
-        device       : str = "cpu",
-        do_ten_crops : bool = False
+        architecture: str = "RGB and Semantic",
+        device: str = "cpu",
+        do_ten_crops: bool = False,
+        segmentation_model: SemanticSegmentationModel = None
     ):
-    #TODO(RN) documentation
+        assert architecture in self.architectures
+        if "Semantic" in architecture and segmentation_model is None:
+            raise ValueError("SAScene classifier requires a segmentation net but 'segmentation_model' is None.")
+
+        #TODO(RN) documentation
         self.do_ten_crops = do_ten_crops
         self.device = device
         self.dataset = PlacesDatasetMetadata(do_ten_crops)
         self.preprocess_img = self.dataset.val_transforms_img
-        self.segmentation_model = segmentation_model
-        self.model = SASceneNet(
-            arch = "ResNet-18",
-            scene_classes = self.dataset.n_scene_classes, 
-            semantic_classes = self.dataset.n_semantic_classes
-        )
+
+        # Construct network and find model checkpoint
+        if architecture == "RGB only":
+            self.model = SASceneNet_RGB_Only(
+                # Only ResNet-18 is supported for Places
+                arch = "ResNet-18",
+                scene_classes = self.dataset.n_scene_classes
+            )
+            model_path = "../../utils/SAScene_checkpoints/RGB_ResNet18_Places.pth.tar"
         
+        elif architecture == "Semantic only":
+            self.model = SASceneNet_Semantic_Only(
+                scene_classes = self.dataset.n_scene_classes, 
+                semantic_classes = self.dataset.n_semantic_classes
+            )
+            
+            model_path = "../../utils/SAScene_checkpoints/SemBranch_Places.pth.tar"
+        
+        elif architecture == "RGB and Semantic":
+            self.model = SASceneNet_SemanticAndRGB(
+                arch = "ResNet-18",
+                scene_classes = self.dataset.n_scene_classes, 
+                semantic_classes = self.dataset.n_semantic_classes
+            )
+            model_path = "../../utils/SAScene_checkpoints/SAScene_ResNet18_Places.pth.tar"
+        
+        else:
+            raise ValueError(f"Unexpected architecture '{architecture}' in SASceneNet.")
+
         # Load the model
         checkpoint = torch.load(model_path, map_location=torch.device(device))
         self.model.load_state_dict(checkpoint['state_dict'])
         self.model.to(device)
         self.model.eval()
 
-        self.segmentation_model.model.to(device)
-        self.segmentation_model.model.eval()
+        self.segmentation_model = segmentation_model
+        if segmentation_model is not None:
+            self.segmentation_model.model.to(device)
+            self.segmentation_model.model.eval()
 
     def predict_from_tensors(self,
         image: torch.Tensor,
-        semantic_mask: torch.Tensor,
-        semantic_scores: torch.Tensor,
+        semantic_mask: Optional[torch.Tensor] = None,
+        semantic_scores: Optional[torch.Tensor] = None,
         track_image_gradients: bool = False
     ) -> torch.Tensor:
         if self.do_ten_crops:
@@ -131,15 +163,18 @@ class SceneRecognitionModel:
             expected_shape = (3, self.dataset.output_size, self.dataset.output_size)
 
         for tensor in (image, semantic_mask, semantic_scores):
-            assert tensor.shape == expected_shape
+            if tensor is not None:
+                assert tensor.shape == expected_shape
 
         image.unsqueeze_(0)
-        semantic_mask.unsqueeze_(0)
-        semantic_scores.unsqueeze_(0)
+        if semantic_mask is not None and semantic_scores is not None:
+            semantic_mask.unsqueeze_(0)
+            semantic_scores.unsqueeze_(0)
 
         batch_size = image.shape[0]
 
         if self.do_ten_crops:
+            raise NotImplementedError("Need to support none semantic mask")
             n_crops = image.shape[1]
             # Fuse batch size and ncrops to set the input for the network
             fuse_first_two_dims = lambda t : t.reshape_(-1, t.shape[2:])
@@ -149,8 +184,10 @@ class SceneRecognitionModel:
             fuse_first_two_dims(semantic_scores)
         
         # Create tensor of probabilities from semantic_mask
-        semanticTensor = utils.make_one_hot(semantic_mask, semantic_scores, C=self.dataset.n_semantic_classes, device=self.device)
-                
+        semanticTensor = None
+        if semantic_mask is not None and semantic_scores is not None:
+            semanticTensor = utils.make_one_hot(semantic_mask, semantic_scores, C=self.dataset.n_semantic_classes, device=self.device)
+       
         if track_image_gradients:
             image.requires_grad_()
 
@@ -158,6 +195,7 @@ class SceneRecognitionModel:
         outputSceneLabels, feature_conv, outputSceneLabelRGB, outputSceneLabelSEM = self.model(image, semanticTensor)
 
         if self.do_ten_crops:
+            raise NotImplementedError("reimplement tencrops")
             # Average results over the 10 crops
             outputSceneLabels = outputSceneLabels.view(batch_size, n_crops, -1).mean(1)
             outputSceneLabelRGB = outputSceneLabelRGB.view(batch_size, n_crops, -1).mean(1)
@@ -167,13 +205,16 @@ class SceneRecognitionModel:
 
     def predict(self,
         image : PIL.Image.Image,
-        track_image_gradients: bool = False,
+        track_image_gradients: bool = False
         
     ) -> torch.Tensor:
         if image.mode is not "RGB":
             image = image.convert("RGB")
         
-        semantic_mask, semantic_scores = self.get_segmentation(image)
+        semantic_mask, semantic_scores = None, None
+        if self.segmentation_model is not None:
+            semantic_mask, semantic_scores = self.get_segmentation(image)
+            
         image = self.dataset.val_transforms_img(image).to(self.device)
 
         return self.predict_from_tensors(image, semantic_mask, semantic_scores, track_image_gradients)
@@ -202,3 +243,6 @@ class SceneRecognitionModel:
         semantic_scores = self.dataset.val_transforms_sem_scores(semantic_scores)
 
         return semantic_mask, semantic_scores
+
+if __name__ == "__main__":
+    model = SceneRecognitionModel(architecture="RGB only")
