@@ -122,14 +122,16 @@ class InstanceSegmentationModel:
             pred_classes:   the corresponding class labels of shape (N)
         """
         outputs = self.predictor(image)["instances"]
-        if len(outputs)== 0:
-            print("ERROR: the instance segmentation network did not find any objects.")
-            exit(-1)
-        # The instance masks of shape (N, H, W) containing bool values
-        pred_masks = outputs.pred_masks
-        pred_masks = binary_masks_to_opencv_images(pred_masks)
-        # The vector of N class labels
-        pred_classes = outputs.pred_classes
+        if len(outputs) == 0:
+            print("WARNING: the instance segmentation network did not find any objects.")
+            pred_masks = None
+            pred_classes = None
+        else:
+            # The instance masks of shape (N, H, W) containing bool values
+            pred_masks = outputs.pred_masks
+            pred_masks = np.stack(pred_masks.cpu().numpy()).astype(np.float)
+            # The vector of N class labels
+            pred_classes = outputs.pred_classes
         
         if return_labels:
             return pred_masks, pred_classes
