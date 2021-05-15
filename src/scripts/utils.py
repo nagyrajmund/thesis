@@ -29,7 +29,7 @@ def create_default_argparser(**override_defaults_kwargs) -> ArgumentParser:
     """
     parser = ArgumentParser(add_help=True)
     
-    parser.add_argument("--data_dir", type=str, default="../../data/places365/validation_small",
+    parser.add_argument("--data_dir", type=str, default="../../data/places365/validation_full",
                         help="The folder where the input images will be read from.")
 
     parser.add_argument("--output_dir", type=str, default=None,
