@@ -1,5 +1,6 @@
 from datetime import datetime
 import math
+from models.wrappers.segmentation import SemanticSegmentationModel
 import cv2
 from PIL.Image import blend
 from argparse import Namespace
@@ -12,9 +13,7 @@ import matplotlib
 from matplotlib.gridspec import GridSpec
 import numpy as np
 from models.wrappers.classification import SceneRecognitionModel
-from models.wrappers.segmentation import InstanceSegmentationModel, SemanticSegmentationModel
 from models.wrappers.generation import ImageGenerator
-from models.wrappers.inpainting import InpaintingModel
 import PIL
 import torch
 from tqdm import tqdm
@@ -119,11 +118,6 @@ class IntegratedGradients:
            do_ten_crops = False,
            segmentation_model = semantic_segmentation_model 
         )
-
-        if args.baseline == "inpainted":           
-            # The inpainting model is always on cpu due to a CUDA dependency
-            # conflict between tensorflow 1 and pytorch
-            self.inpainting_model = InpaintingModel()
         
         if "latent" in args.interpolation:
             self.generative_model = ImageGenerator(device=args.device)
@@ -587,10 +581,9 @@ class IntegratedGradients:
             baseline = np.uint8(baseline * 255)
 
         elif baseline_type == "inpainted":
-            cv_image = utils.pil_to_opencv_image(image)
-            mask = cv2.imread(join(self.args.segmentation_dir, filename))
-            
-            baseline = self.inpainting_model.inpaint(cv_image, mask)
+            baseline = PIL.Image.open(join(self.args.inpainting_dir, filename)).convert("RGB")
+            # No need to convert it to anything else so we can return
+            return baseline
         else:
             raise ValueError(f"Unexpected baseline '{baseline_type}'.")
 
@@ -726,9 +719,10 @@ def parse_args() -> Namespace:
     """
     # Add with default arguments such as --show_plot and --output_dir
     parser = utils.create_default_argparser()
-    parser.add_argument("--segmentation_dir", type=str, required=True,
+    parser.add_argument("--segmentation_dir", type=str, default="../../data/thesis/places365/segmentations",
                         help="The folder with the precomputed binary object segmentation maps.")
-
+    parser.add_argument("--inpainting_dir", type=str, default="../../data/thesis/places365/inpaintings",
+                        help="The folder with the inpainted (baseline) images.")
     IntegratedGradients.add_argparse_args(parser)
     
     return parser.parse_args()
