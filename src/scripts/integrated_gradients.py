@@ -24,6 +24,7 @@ from torchvision.transforms.functional import center_crop, to_tensor, to_pil_ima
 from matplotlib import ticker
 import sklearn
 import scipy
+from sklearn import metrics
 # -----------------------------------------------------------------------------------
 
 def main():
@@ -84,8 +85,8 @@ def main():
         explainer.plot_curves(insertion_curve, deletion_curve, target_label, target_prob, filename)
 
         # Store the AUC of the curves
-        insertion_auc_values.append(auc(insertion_curve))
-        deletion_auc_values.append(auc(deletion_curve))
+        insertion_auc_values.append(relative_auc(insertion_curve, reference_value = target_prob))
+        deletion_auc_values.append(relative_auc(deletion_curve, reference_value = target_prob))
 
     # Save the curves and their AUC to the output folder
     save_results(args, insertion_curves, insertion_auc_values, deletion_curves, deletion_auc_values, predicted_labels, prediction_confidences)
@@ -862,13 +863,14 @@ def describe_array(arr: np.ndarray) -> str:
     
     return f"{mean:05.2%}+-{std:05.2%}"
 
-def auc(values: Sequence[float]):
+def relative_auc(values: Sequence[float], reference_value):
     """
-    Return the AUC for the given values, assuming that the x axis goes from 0 to 1.
+    # TODO(RN): documentation
     """
     loc = np.linspace(0, 1, num=len(values), endpoint=True)
-    return sklearn.metrics.auc(loc, values)
-
+    normalized_values = np.asarray(values) / reference_value
+  
+    return sklearn.metrics.auc(loc, normalized_values)
 
 
 if __name__ == "__main__":    
